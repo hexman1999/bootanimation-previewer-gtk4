@@ -834,6 +834,7 @@ class BootAnimationPreviewerApp(Adw.Application):
             return
         dialog = Adw.AlertDialog(heading="Animation Info")
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        box.set_size_request(400, -1)
         box.set_margin_top(8)
         box.set_margin_bottom(8)
         fields = [

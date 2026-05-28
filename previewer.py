@@ -393,12 +393,15 @@ class BootAnimationPreviewerApp(Adw.Application):
         seekbar_box.set_margin_start(20)
         seekbar_box.set_margin_end(20)
         seekbar_box.set_margin_bottom(8)
+        seekbar_box.set_spacing(8)
         self.seekbar = Gtk.Scale(orientation=Gtk.Orientation.HORIZONTAL)
         self.seekbar.set_hexpand(True)
         self.seekbar.set_sensitive(False)
-        self.seekbar.set_format_value_func(self._seekbar_format_value)
         self._seekbar_handler_id = self.seekbar.connect("value-changed", self.on_seekbar_value_changed)
         seekbar_box.append(self.seekbar)
+        self.seekbar_label = Gtk.Label(label="0.0s / 0.0s")
+        self.seekbar_label.set_width_chars(14)
+        seekbar_box.append(self.seekbar_label)
         control_bar_wrapper.append(seekbar_box)
 
         control_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
@@ -514,6 +517,10 @@ class BootAnimationPreviewerApp(Adw.Application):
             self.seekbar.handler_block(self._seekbar_handler_id)
             self.seekbar.set_value(logical)
             self.seekbar.handler_unblock(self._seekbar_handler_id)
+            fps = self.animation.fps or 30
+            secs = logical / fps if fps > 0 else 0
+            total_secs = total / fps if fps > 0 else 0
+            self.seekbar_label.set_text(f"{secs:.1f}s / {total_secs:.1f}s")
 
     def on_draw(self, drawing_area, cr, width, height, user_data=None):
         cr.set_source_rgb(0.08, 0.08, 0.08)

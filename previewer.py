@@ -349,24 +349,28 @@ class BootAnimationPreviewerApp(Adw.Application):
         self.btn_play_pause = Gtk.Button(icon_name="media-playback-start-symbolic")
         self.btn_play_pause.add_css_class("circular")
         self.btn_play_pause.add_css_class("suggested-action")
+        self.btn_play_pause.set_tooltip_text("Play / Pause")
         self.btn_play_pause.connect("clicked", self.on_play_pause_clicked)
         control_bar.append(self.btn_play_pause)
 
         # Stop button
         btn_stop = Gtk.Button(icon_name="media-playback-stop-symbolic")
         btn_stop.add_css_class("circular")
+        btn_stop.set_tooltip_text("Stop")
         btn_stop.connect("clicked", self.on_stop_clicked)
         control_bar.append(btn_stop)
 
         # Prev frame button
         btn_prev = Gtk.Button(icon_name="go-previous-symbolic")
         btn_prev.add_css_class("circular")
+        btn_prev.set_tooltip_text("Previous Frame")
         btn_prev.connect("clicked", self.on_prev_frame_clicked)
         control_bar.append(btn_prev)
 
         # Next frame button
         btn_next = Gtk.Button(icon_name="go-next-symbolic")
         btn_next.add_css_class("circular")
+        btn_next.set_tooltip_text("Next Frame")
         btn_next.connect("clicked", self.on_next_frame_clicked)
         control_bar.append(btn_next)
 
@@ -374,6 +378,7 @@ class BootAnimationPreviewerApp(Adw.Application):
         self.btn_loop = Gtk.ToggleButton(icon_name="media-playlist-repeat-symbolic")
         self.btn_loop.add_css_class("circular")
         self.btn_loop.set_active(self.loop_entire)
+        self.btn_loop.set_tooltip_text("Loop")
         self.btn_loop.connect("toggled", self.on_loop_toggled)
         control_bar.append(self.btn_loop)
 

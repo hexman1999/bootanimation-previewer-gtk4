@@ -10,6 +10,9 @@ gi.require_version('Adw', '1')
 gi.require_version('Gdk', '4.0')
 gi.require_version('GdkPixbuf', '2.0')
 from gi.repository import GLib, Gio, Gtk, Gdk, GdkPixbuf, Adw
+from PIL import Image
+import cv2
+import numpy
 
 # Initialize Libadwaita
 Adw.init()
@@ -353,6 +356,15 @@ class BootAnimationPreviewerApp(Adw.Application):
         
         open_btn.connect("clicked", self.on_open_file)
         content_header.pack_end(open_btn)
+
+        # Export button
+        export_btn = Gtk.Button()
+        export_content = Adw.ButtonContent()
+        export_content.set_icon_name("document-save-as-symbolic")
+        export_content.set_label("Export")
+        export_btn.set_child(export_content)
+        export_btn.connect("clicked", self.on_export_clicked)
+        content_header.pack_end(export_btn)
 
         # Canvas Preview Area Container
         canvas_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -763,6 +775,249 @@ class BootAnimationPreviewerApp(Adw.Application):
                 self.load_animation(filepath)
         except Exception as e:
             print(f"Error selecting file: {e}")
+
+    def render_frame_to_surface(self, part_index, frame_index, dev_w, dev_h):
+        surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, dev_w, dev_h)
+        cr = cairo.Context(surface)
+
+        bg_r, bg_g, bg_b = 0.0, 0.0, 0.0
+        if part_index < len(self.animation.parts):
+            part = self.animation.parts[part_index]
+            if part['bg_color']:
+                bg_r, bg_g, bg_b = self.parse_color(part['bg_color'])
+        cr.set_source_rgb(bg_r, bg_g, bg_b)
+        cr.paint()
+
+        frame_data = self.animation.get_frame_surface(part_index, frame_index)
+        if frame_data:
+            surface_f, frame_w, frame_h = frame_data
+            anim_w = self.animation.width or frame_w
+            anim_h = self.animation.height or frame_h
+
+            anim_x = (dev_w - anim_w) / 2
+            anim_y = (dev_h - anim_h) / 2
+
+            cr.save()
+            cr.translate(anim_x, anim_y)
+
+            part = self.animation.parts[part_index]
+            if part['trims'] and frame_index < len(part['trims']):
+                trim = part['trims'][frame_index]
+                cr.set_source_surface(surface_f, trim['x'], trim['y'])
+                cr.paint()
+            else:
+                frame_scale_x = anim_w / frame_w
+                frame_scale_y = anim_h / frame_h
+                cr.save()
+                cr.scale(frame_scale_x, frame_scale_y)
+                cr.set_source_surface(surface_f, 0, 0)
+                cr.paint()
+                cr.restore()
+
+            cr.restore()
+
+        surface.flush()
+        return surface
+
+    def surface_to_numpy_rgb(self, surface):
+        data = surface.get_data()
+        arr = numpy.frombuffer(data, dtype=numpy.uint8).reshape((surface.get_height(), surface.get_width(), 4))
+        r = arr[:, :, 2]
+        g = arr[:, :, 1]
+        b = arr[:, :, 0]
+        return numpy.stack([r, g, b], axis=2)
+
+    def on_export_clicked(self, btn):
+        if not self.animation:
+            self.show_error_dialog("No Animation", "Open a boot animation first.")
+            return
+
+        dialog = Gtk.FileDialog(title="Export Animation")
+
+        mp4_filter = Gtk.FileFilter()
+        mp4_filter.set_name("MP4 Video (*.mp4)")
+        mp4_filter.add_pattern("*.mp4")
+
+        gif_filter = Gtk.FileFilter()
+        gif_filter.set_name("GIF Image (*.gif)")
+        gif_filter.add_pattern("*.gif")
+
+        filters = Gio.ListStore.new(Gtk.FileFilter)
+        filters.append(mp4_filter)
+        filters.append(gif_filter)
+        dialog.set_filters(filters)
+
+        basename = os.path.splitext(self.animation.filename)[0]
+        dialog.set_initial_name(f"{basename}.mp4")
+
+        dialog.save(self.window, None, self.on_export_file_selected)
+
+    def on_export_file_selected(self, dialog, result):
+        try:
+            file_info = dialog.save_finish(result)
+            if not file_info:
+                return
+            filepath = file_info.get_path()
+            self.do_export(filepath)
+        except Exception as e:
+            self.show_error_dialog("Export Error", f"Failed to save file: {e}")
+
+    def do_export(self, filepath):
+        if not self.animation:
+            return
+
+        self.stop_playback()
+
+        preset = DEVICE_PRESETS[self.selected_preset_index]
+        if preset["name"] == "Custom Dimensions":
+            dev_w = int(self.custom_w_spin.get_value())
+            dev_h = int(self.custom_h_spin.get_value())
+        elif preset["width"] is None or preset["height"] is None:
+            dev_w = self.animation.width or 1080
+            dev_h = self.animation.height or 1920
+        else:
+            dev_w = preset["width"]
+            dev_h = preset["height"]
+
+        fps = self.animation.fps or 30
+        ext = os.path.splitext(filepath)[1].lower()
+
+        frames = []
+        for part_idx, part in enumerate(self.animation.parts):
+            for frame_idx in range(len(part['frames'])):
+                frames.append((part_idx, frame_idx))
+
+        if not frames:
+            self.show_error_dialog("Export Error", "No frames to export.")
+            return
+
+        self._export_state = {
+            'filepath': filepath,
+            'frames': frames,
+            'dev_w': dev_w,
+            'dev_h': dev_h,
+            'fps': fps,
+            'ext': ext,
+            'idx': 0,
+            'arrays': [],
+            'total': len(frames),
+        }
+
+        export_dialog = Adw.AlertDialog(
+            heading="Exporting Animation",
+            body=f"Rendering {len(frames)} frames at {dev_w}\u00d7{dev_h}..."
+        )
+        export_dialog.add_response("cancel", "Cancel")
+        export_dialog.connect("response", self._on_export_dialog_response)
+        export_dialog.present(self.window)
+        self._export_dialog = export_dialog
+
+        GLib.idle_add(self._export_process_batch)
+
+    def _on_export_dialog_response(self, dialog, response):
+        if response == "cancel":
+            self._export_state['cancelled'] = True
+
+    def _export_process_batch(self):
+        state = self._export_state
+        batch_size = 3
+
+        try:
+            for _ in range(batch_size):
+                if state.get('cancelled'):
+                    self._finish_export(cancelled=True)
+                    return False
+
+                if state['idx'] >= state['total']:
+                    break
+
+                part_idx, frame_idx = state['frames'][state['idx']]
+                surface = self.render_frame_to_surface(part_idx, frame_idx, state['dev_w'], state['dev_h'])
+                rgb_array = self.surface_to_numpy_rgb(surface)
+                state['arrays'].append(rgb_array)
+                state['idx'] += 1
+
+            if state['idx'] < state['total']:
+                if self._export_dialog:
+                    self._export_dialog.set_body(f"Rendered {state['idx']}/{state['total']} frames...")
+                return True
+
+            self._finish_export(encode=True)
+        except Exception as e:
+            self._finish_export(error=str(e))
+
+        return False
+
+    def _finish_export(self, encode=False, error=None, cancelled=False):
+        if cancelled:
+            self._export_state['arrays'].clear()
+            self._export_state['arrays'] = []
+            if self._export_dialog:
+                self._export_dialog.close()
+            self.show_error_dialog("Export Cancelled", "Export was cancelled.")
+            return
+
+        if error:
+            if self._export_dialog:
+                self._export_dialog.close()
+            self.show_error_dialog("Export Failed", error)
+            return
+
+        if encode:
+            self._export_encode()
+
+    def _export_encode(self):
+        state = self._export_state
+        ext = state['ext']
+        arrays = state['arrays']
+
+        if self._export_dialog:
+            self._export_dialog.set_body("Encoding video...")
+
+        try:
+            if ext == '.gif':
+                self._export_gif(state)
+            elif ext == '.mp4':
+                self._export_mp4(state)
+            else:
+                raise ValueError(f"Unsupported format: {ext}")
+
+            if self._export_dialog:
+                self._export_dialog.close()
+            self.show_success_dialog(
+                "Export Complete",
+                f"Exported {len(arrays)} frames to {os.path.basename(state['filepath'])}"
+            )
+        except Exception as e:
+            if self._export_dialog:
+                self._export_dialog.close()
+            self.show_error_dialog("Export Failed", str(e))
+
+    def _export_gif(self, state):
+        duration = max(1, int(1000 / state['fps']))
+        images = [Image.fromarray(arr) for arr in state['arrays']]
+        images[0].save(
+            state['filepath'],
+            save_all=True,
+            append_images=images[1:],
+            duration=duration,
+            loop=0
+        )
+
+    def _export_mp4(self, state):
+        h, w = state['arrays'][0].shape[:2]
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter(state['filepath'], fourcc, state['fps'], (w, h))
+        for arr in state['arrays']:
+            bgr = cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
+            out.write(bgr)
+        out.release()
+
+    def show_success_dialog(self, title, message):
+        dialog = Adw.AlertDialog(heading=title, body=message)
+        dialog.add_response("ok", "OK")
+        dialog.set_default_response("ok")
+        dialog.present(self.window)
 
 
 if __name__ == "__main__":

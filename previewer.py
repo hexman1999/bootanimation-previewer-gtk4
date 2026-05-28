@@ -1446,12 +1446,11 @@ class BootAnimationPreviewerApp(Adw.Application):
 
 
     def _on_window_key_pressed(self, controller, keyval, keycode, state):
-        if state & Gdk.ModifierType.CONTROL_MASK:
-            return False
+        ctrl = state & Gdk.ModifierType.CONTROL_MASK
 
-        if keyval in (Gdk.KEY_o, Gdk.KEY_O):
+        if ctrl and keyval in (Gdk.KEY_o, Gdk.KEY_O):
             self.on_open_file(None)
-        elif keyval in (Gdk.KEY_e, Gdk.KEY_E):
+        elif ctrl and keyval in (Gdk.KEY_e, Gdk.KEY_E):
             self.on_export_clicked(None)
         elif keyval in (Gdk.KEY_i, Gdk.KEY_I):
             self.on_file_info_clicked(None)

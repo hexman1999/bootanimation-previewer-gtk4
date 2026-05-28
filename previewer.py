@@ -3,6 +3,11 @@ import os
 import re
 import sys
 import zipfile
+import gi
+gi.require_version('Gtk', '4.0')
+gi.require_version('Adw', '1')
+gi.require_version('Gdk', '4.0')
+gi.require_version('GdkPixbuf', '2.0')
 from gi.repository import GLib, Gio, Gtk, Gdk, GdkPixbuf, Adw
 
 # Initialize Libadwaita
@@ -13,8 +18,13 @@ DEVICE_PRESETS = [
     {"name": "Phone (1080 × 2400) - 20:9 (Default)", "width": 1080, "height": 2400},
     {"name": "Phone (1080 × 1920) - 16:9", "width": 1080, "height": 1920},
     {"name": "Phone (1440 × 3200) - 20:9", "width": 1440, "height": 3200},
+    {"name": "Phone (720 × 1280) - 16:9", "width": 720, "height": 1280},
     {"name": "Tablet (2560 × 1600) - 16:10", "width": 2560, "height": 1600},
     {"name": "Tablet (2048 × 1536) - 4:3", "width": 2048, "height": 1536},
+    {"name": "Smartwatch (450 × 450) - Round 1:1", "width": 450, "height": 450},
+    {"name": "Foldable Open (2208 × 1768) - 5:4", "width": 2208, "height": 1768},
+    {"name": "Foldable Closed (840 × 2260) - 24:9", "width": 840, "height": 2260},
+    {"name": "Custom Dimensions", "width": -1, "height": -1},
 ]
 
 class BootAnimation:
@@ -184,7 +194,7 @@ class BootAnimationPreviewerApp(Adw.Application):
         self.window = Adw.ApplicationWindow(application=self, title="Boot Animation Previewer")
         self.window.set_default_size(1080, 750)
 
-        # Overlay Split View to allow modern, resizable, collapsible sidebar
+        # Overlay Split View to allow sidebar resizing
         self.split_view = Adw.OverlaySplitView()
         self.split_view.set_min_sidebar_width(280)
         self.split_view.set_max_sidebar_width(400)
@@ -222,6 +232,31 @@ class BootAnimationPreviewerApp(Adw.Application):
         vbox.set_margin_top(16)
         vbox.set_margin_bottom(16)
         scrolled.set_child(vbox)
+
+        # Custom Dimensions Group (Visible only when "Custom Dimensions" preset is selected)
+        self.custom_dim_group = Adw.PreferencesGroup(title="Custom Viewport Dimensions")
+        self.custom_dim_group.set_visible(False)
+        vbox.append(self.custom_dim_group)
+
+        # Custom Width
+        adj_w = Gtk.Adjustment.new(1080.0, 100.0, 8000.0, 10.0, 100.0, 0.0)
+        self.custom_w_spin = Gtk.SpinButton(adjustment=adj_w, climb_rate=10.0, digits=0)
+        self.custom_w_spin.set_valign(Gtk.Align.CENTER)
+        self.custom_w_spin.connect("value-changed", self.on_custom_dim_changed)
+        
+        custom_w_row = Adw.ActionRow(title="Width (px)")
+        custom_w_row.add_suffix(self.custom_w_spin)
+        self.custom_dim_group.add(custom_w_row)
+
+        # Custom Height
+        adj_h = Gtk.Adjustment.new(2400.0, 100.0, 8000.0, 10.0, 100.0, 0.0)
+        self.custom_h_spin = Gtk.SpinButton(adjustment=adj_h, climb_rate=10.0, digits=0)
+        self.custom_h_spin.set_valign(Gtk.Align.CENTER)
+        self.custom_h_spin.connect("value-changed", self.on_custom_dim_changed)
+        
+        custom_h_row = Adw.ActionRow(title="Height (px)")
+        custom_h_row.add_suffix(self.custom_h_spin)
+        self.custom_dim_group.add(custom_h_row)
 
         # Playback Limits Group
         playback_group = Adw.PreferencesGroup(title="Playback Rules")
@@ -278,14 +313,14 @@ class BootAnimationPreviewerApp(Adw.Application):
         sidebar_toggle.connect("toggled", lambda btn: self.split_view.set_show_sidebar(btn.get_active()))
         content_header.pack_start(sidebar_toggle)
 
-        # Device Dimensions Selector moved to the title bar
+        # Device Dimensions Selector in the title bar
         self.preset_combo = Gtk.DropDown.new_from_strings([p["name"] for p in DEVICE_PRESETS])
         self.preset_combo.set_selected(self.selected_preset_index)
         self.preset_combo.connect("notify::selected", self.on_preset_changed)
         self.preset_combo.set_tooltip_text("Select Device Frame Preset")
         content_header.pack_start(self.preset_combo)
 
-        # "Open Animation" button with both icon and text side-by-side
+        # "Open Animation" button
         open_btn = Gtk.Button()
         open_btn.add_css_class("suggested-action")
         
@@ -311,15 +346,14 @@ class BootAnimationPreviewerApp(Adw.Application):
         self.drawing_area.set_draw_func(self.on_draw)
         canvas_container.append(self.drawing_area)
 
-        # Control Bar without gray background card styling (fully floated transparent controls)
+        # Control Bar
         control_bar_wrapper = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        control_bar_wrapper.set_margin_top(24)      # Generous spacing between screen and controls
-        control_bar_wrapper.set_margin_bottom(28)   # Spacing from the bottom edge
+        control_bar_wrapper.set_margin_top(24)
+        control_bar_wrapper.set_margin_bottom(28)
         canvas_container.append(control_bar_wrapper)
 
         control_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         control_bar.set_halign(Gtk.Align.CENTER)
-        # Removed "card" CSS class to remove the gray background
         control_bar.set_margin_start(20)
         control_bar.set_margin_end(20)
         control_bar_wrapper.append(control_bar)
@@ -405,7 +439,10 @@ class BootAnimationPreviewerApp(Adw.Application):
 
         preset = DEVICE_PRESETS[self.selected_preset_index]
         
-        if preset["width"] is None or preset["height"] is None:
+        if preset["name"] == "Custom Dimensions":
+            dev_w = int(self.custom_w_spin.get_value())
+            dev_h = int(self.custom_h_spin.get_value())
+        elif preset["width"] is None or preset["height"] is None:
             dev_w = self.animation.width or 1080
             dev_h = self.animation.height or 1920
         else:
@@ -450,15 +487,26 @@ class BootAnimationPreviewerApp(Adw.Application):
             anim_w = self.animation.width or pixbuf.get_width()
             anim_h = self.animation.height or pixbuf.get_height()
 
-            scale_anim_x = dev_disp_w / anim_w
-            scale_anim_y = dev_disp_h / anim_h
-            scale_anim = min(scale_anim_x, scale_anim_y)
+            # Global Device Transform space
+            cr.save()
+            cr.translate(dev_x, dev_y)
+            cr.scale(scale_dev, scale_dev)
+
+            # Native Android Scaling / Cropping rules:
+            # - If animation has trim.txt: Android renders it at 1:1, cropping if it exceeds device boundaries.
+            # - If animation lacks trim.txt (e.g. LineageOS): Android scales it to fit the device screen.
+            has_trims = any(len(p['trims']) > 0 for p in self.animation.parts)
+            
+            if has_trims:
+                scale_anim = 1.0
+            else:
+                scale_anim = min(dev_w / anim_w, dev_h / anim_h)
 
             anim_disp_w = anim_w * scale_anim
             anim_disp_h = anim_h * scale_anim
             
-            anim_x = dev_x + (dev_disp_w - anim_disp_w) / 2
-            anim_y = dev_y + (dev_disp_h - anim_disp_h) / 2
+            anim_x = (dev_w - anim_disp_w) / 2
+            anim_y = (dev_h - anim_disp_h) / 2
 
             cr.save()
             cr.translate(anim_x, anim_y)
@@ -486,6 +534,7 @@ class BootAnimationPreviewerApp(Adw.Application):
                 cr.restore()
 
             cr.restore()
+            cr.restore()
 
         cr.restore()
 
@@ -497,6 +546,7 @@ class BootAnimationPreviewerApp(Adw.Application):
             hex_str = hex_str[1:]
         try:
             if len(hex_str) == 6:
+                r = int(hex_str[0:2], 16) / 255.0
                 r = int(hex_str[0:2], 16) / 255.0
                 g = int(hex_str[2:4], 16) / 255.0
                 b = int(hex_str[4:6], 16) / 255.0
@@ -568,7 +618,6 @@ class BootAnimationPreviewerApp(Adw.Application):
     def complete_part_play(self, part):
         self.current_part_play_count += 1
         
-        # Respect finite limit for indefinite parts
         effective_count = part['count']
         if effective_count == 0:
             effective_count = self.infinite_part_loop_limit
@@ -655,6 +704,13 @@ class BootAnimationPreviewerApp(Adw.Application):
 
     def on_preset_changed(self, combo, pspec):
         self.selected_preset_index = combo.get_selected()
+        preset = DEVICE_PRESETS[self.selected_preset_index]
+        
+        is_custom = (preset["name"] == "Custom Dimensions")
+        self.custom_dim_group.set_visible(is_custom)
+        self.drawing_area.queue_draw()
+
+    def on_custom_dim_changed(self, spin):
         self.drawing_area.queue_draw()
 
     def on_loop_limit_changed(self, spin):

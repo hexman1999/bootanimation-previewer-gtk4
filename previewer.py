@@ -233,10 +233,22 @@ class BootAnimationPreviewerApp(Adw.Application):
         self.build_ui()
         Adw.StyleManager.get_default().set_color_scheme(Adw.ColorScheme.PREFER_DARK)
 
+    def _set_app_icon(self):
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        svg_path = os.path.join(script_dir, "bootanimation-previewer.svg")
+        theme = Gtk.IconTheme.get_for_display(Gdk.Display.get_default())
+        if os.path.exists(svg_path):
+            theme.add_search_path(script_dir)
+            self.window.set_icon_name("bootanimation-previewer")
+        elif theme.has_icon("bootanimation-previewer"):
+            self.window.set_icon_name("bootanimation-previewer")
+        else:
+            self.window.set_icon_name("phone")
+
     def build_ui(self):
         self.window = Adw.ApplicationWindow(application=self, title="Boot Animation Previewer")
         self.window.set_default_size(1080, 750)
-        self.window.set_icon_name("phone")
+        self._set_app_icon()
         self.toast_overlay = Adw.ToastOverlay()
         self.toast_overlay.set_child(self.build_content_area())
         self.window.set_content(self.toast_overlay)
@@ -296,7 +308,6 @@ class BootAnimationPreviewerApp(Adw.Application):
         info_content.set_icon_name("dialog-information-symbolic")
         info_content.set_label("Info")
         self.btn_file_info.set_child(info_content)
-        self.btn_file_info.set_sensitive(False)
         self.btn_file_info.connect("clicked", self.on_file_info_clicked)
         content_header.pack_end(self.btn_file_info)
 
@@ -459,8 +470,6 @@ class BootAnimationPreviewerApp(Adw.Application):
 
         self.update_playback_status_labels()
         self.drawing_area.queue_draw()
-
-        self.btn_file_info.set_sensitive(True)
 
         total = self._compute_total_logical_frames()
         self.seekbar.set_range(0, max(0, total))
@@ -874,19 +883,6 @@ class BootAnimationPreviewerApp(Adw.Application):
         self.status_info_bar.set_visible(btn.get_active())
 
     def on_file_info_clicked(self, btn):
-        if not self.animation:
-            return
-
-        filepath = self.animation.filepath
-        fields = [
-            ("File Name", self._meta_filename),
-            ("File Path", filepath),
-            ("Resolution", self._meta_resolution),
-            ("Frame Rate", self._meta_fps),
-            ("Parts", self._meta_parts),
-            ("Frames", self._meta_frames),
-        ]
-
         dialog = Adw.Dialog()
         dialog.set_can_close(True)
 
@@ -898,7 +894,12 @@ class BootAnimationPreviewerApp(Adw.Application):
         title_bar.set_margin_end(12)
         title_bar.set_margin_top(12)
 
-        title_lbl = Gtk.Label(label="Animation Info")
+        title_icon = Gtk.Image(icon_name="dialog-information-symbolic")
+        title_icon.set_pixel_size(32)
+        title_icon.set_margin_end(8)
+        title_bar.append(title_icon)
+
+        title_lbl = Gtk.Label(label="Info")
         title_lbl.set_hexpand(True)
         title_lbl.set_xalign(0)
         title_lbl.add_css_class("large-title")
@@ -926,59 +927,100 @@ class BootAnimationPreviewerApp(Adw.Application):
         content.set_margin_bottom(12)
         content.add_css_class("card")
 
-        for i, (label, value) in enumerate(fields):
-            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-            row.set_margin_start(12)
-            row.set_margin_end(12)
-            row.set_margin_top(8)
-            row.set_margin_bottom(8)
+        if not self.animation:
+            no_file_lbl = Gtk.Label(label="No file open")
+            no_file_lbl.set_margin_top(24)
+            no_file_lbl.set_margin_bottom(24)
+            no_file_lbl.add_css_class("dim-label")
+            content.append(no_file_lbl)
+        else:
+            filepath = self.animation.filepath
+            fields = [
+                ("File Name", self._meta_filename),
+                ("File Path", filepath),
+                ("Resolution", self._meta_resolution),
+                ("Frame Rate", self._meta_fps),
+                ("Parts", self._meta_parts),
+                ("Frames", self._meta_frames),
+            ]
 
-            lbl = Gtk.Label(label=label)
-            lbl.set_xalign(0)
-            lbl.set_width_chars(10)
-            lbl.add_css_class("dim-label")
-            val = Gtk.Label(label=value)
-            val.set_xalign(0)
-            val.set_hexpand(True)
-            val.set_ellipsize(Pango.EllipsizeMode.END)
-            row.append(lbl)
-            row.append(val)
+            for i, (label, value) in enumerate(fields):
+                row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+                row.set_margin_start(12)
+                row.set_margin_end(12)
+                row.set_margin_top(8)
+                row.set_margin_bottom(8)
 
-            content.append(row)
+                lbl = Gtk.Label(label=label)
+                lbl.set_xalign(0)
+                lbl.set_width_chars(10)
+                lbl.add_css_class("dim-label")
+                val = Gtk.Label(label=value)
+                val.set_xalign(0)
+                val.set_hexpand(True)
+                val.set_ellipsize(Pango.EllipsizeMode.END)
+                row.append(lbl)
+                row.append(val)
 
-            if i < len(fields) - 1:
-                sep = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
-                sep.set_margin_start(12)
-                sep.set_margin_end(12)
-                content.append(sep)
+                content.append(row)
+
+                if i < len(fields) - 1:
+                    sep = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+                    sep.set_margin_start(12)
+                    sep.set_margin_end(12)
+                    content.append(sep)
 
         outer.append(content)
 
         # Action buttons
         btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        btn_box.set_halign(Gtk.Align.END)
+        btn_box.set_halign(Gtk.Align.FILL)
         btn_box.set_margin_top(12)
         btn_box.set_margin_bottom(12)
         btn_box.set_margin_start(16)
         btn_box.set_margin_end(16)
 
-        copy_btn = Gtk.Button()
-        copy_content = Adw.ButtonContent()
-        copy_content.set_icon_name("edit-copy-symbolic")
-        copy_content.set_label("Copy Path")
-        copy_btn.set_child(copy_content)
-        copy_btn.add_css_class("flat")
-        copy_btn.connect("clicked", self._on_info_copy_clicked, filepath)
-        btn_box.append(copy_btn)
+        about_btn = Gtk.Button()
+        about_content = Adw.ButtonContent()
+        about_content.set_icon_name("help-about-symbolic")
+        about_content.set_label("About")
+        about_btn.set_child(about_content)
+        about_btn.add_css_class("flat")
+        about_btn.connect("clicked", self._on_info_about_clicked)
+        btn_box.append(about_btn)
 
-        open_btn = Gtk.Button()
-        open_content = Adw.ButtonContent()
-        open_content.set_icon_name("folder-open-symbolic")
-        open_content.set_label("Show in Folder")
-        open_btn.set_child(open_content)
-        open_btn.add_css_class("suggested-action")
-        open_btn.connect("clicked", self._on_info_open_clicked, filepath)
-        btn_box.append(open_btn)
+        shortcuts_btn = Gtk.Button()
+        shortcuts_content = Adw.ButtonContent()
+        shortcuts_content.set_icon_name("keyboard-symbolic")
+        shortcuts_content.set_label("Shortcuts")
+        shortcuts_btn.set_child(shortcuts_content)
+        shortcuts_btn.add_css_class("flat")
+        shortcuts_btn.connect("clicked", self._on_info_shortcuts_clicked)
+        btn_box.append(shortcuts_btn)
+
+        spacer = Gtk.Box()
+        spacer.set_hexpand(True)
+        btn_box.append(spacer)
+
+        if self.animation:
+            filepath = self.animation.filepath
+            copy_btn = Gtk.Button()
+            copy_content = Adw.ButtonContent()
+            copy_content.set_icon_name("edit-copy-symbolic")
+            copy_content.set_label("Copy Path")
+            copy_btn.set_child(copy_content)
+            copy_btn.add_css_class("flat")
+            copy_btn.connect("clicked", self._on_info_copy_clicked, filepath)
+            btn_box.append(copy_btn)
+
+            open_btn = Gtk.Button()
+            open_content = Adw.ButtonContent()
+            open_content.set_icon_name("folder-open-symbolic")
+            open_content.set_label("Show in Folder")
+            open_btn.set_child(open_content)
+            open_btn.add_css_class("suggested-action")
+            open_btn.connect("clicked", self._on_info_open_clicked, filepath)
+            btn_box.append(open_btn)
 
         outer.append(btn_box)
         dialog.set_child(outer)
@@ -1014,6 +1056,78 @@ class BootAnimationPreviewerApp(Adw.Application):
                 subprocess.Popen(["xdg-open", dir_path])
         except Exception:
             subprocess.Popen(["xdg-open", dir_path])
+
+    def _on_info_about_clicked(self, btn):
+        dialog = Adw.AlertDialog(heading="Boot Animation Previewer")
+
+        about_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        about_box.set_margin_top(8)
+        about_box.set_margin_bottom(8)
+        about_box.set_margin_start(12)
+        about_box.set_margin_end(12)
+
+        icon = Gtk.Image(icon_name=self.window.get_icon_name() or "phone")
+        icon.set_pixel_size(64)
+
+        body_lbl = Gtk.Label(
+            label="A GTK4/Libadwaita application for previewing and exporting Android bootanimation.zip files.\n\nCreated by Antigravity."
+        )
+        body_lbl.set_wrap(True)
+        body_lbl.set_xalign(0)
+
+        about_box.append(icon)
+        about_box.append(body_lbl)
+        dialog.set_extra_child(about_box)
+        dialog.add_response("ok", "OK")
+        dialog.set_default_response("ok")
+        dialog.present(self.window)
+
+    def _on_info_shortcuts_clicked(self, btn):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        box.set_margin_top(8)
+        box.set_margin_bottom(8)
+        box.set_margin_start(12)
+        box.set_margin_end(12)
+
+        header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        header_box.set_margin_bottom(8)
+        header_icon = Gtk.Image(icon_name="keyboard-symbolic")
+        header_icon.set_pixel_size(32)
+        header_lbl = Gtk.Label(label="Keyboard Shortcuts")
+        header_lbl.add_css_class("large-title")
+        header_box.append(header_icon)
+        header_box.append(header_lbl)
+        box.append(header_box)
+
+        shortcuts = [
+            ("Ctrl+O", "Open Animation"),
+            ("Ctrl+E", "Export"),
+            ("I", "File Info"),
+            ("Space", "Play / Pause"),
+            ("S", "Stop"),
+            ("A / ←", "Previous Frame"),
+            ("D / →", "Next Frame"),
+            ("L", "Toggle Loop"),
+            ("T", "Toggle Player Status"),
+        ]
+        for key, desc in shortcuts:
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=24)
+            key_lbl = Gtk.Label(label=key)
+            key_lbl.set_xalign(0)
+            key_lbl.set_width_chars(8)
+            key_lbl.add_css_class("monospace")
+            desc_lbl = Gtk.Label(label=desc)
+            desc_lbl.set_xalign(0)
+            desc_lbl.set_hexpand(True)
+            row.append(key_lbl)
+            row.append(desc_lbl)
+            box.append(row)
+
+        dialog = Adw.AlertDialog()
+        dialog.set_extra_child(box)
+        dialog.add_response("ok", "OK")
+        dialog.set_default_response("ok")
+        dialog.present(self.window)
 
     def on_speed_changed(self, combo, pspec):
         selected = combo.get_selected()

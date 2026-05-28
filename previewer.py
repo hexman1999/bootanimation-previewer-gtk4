@@ -342,8 +342,10 @@ class BootAnimationPreviewerApp(Adw.Application):
         self.status_info_bar.set_visible(False)
         self.lbl_status_part = Gtk.Label(label="-")
         self.lbl_status_frame = Gtk.Label(label="-")
+        self.lbl_status_position = Gtk.Label(label="-")
         self.status_info_bar.append(self.lbl_status_part)
         self.status_info_bar.append(self.lbl_status_frame)
+        self.status_info_bar.append(self.lbl_status_position)
         control_bar_wrapper.append(self.status_info_bar)
 
         control_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
@@ -467,6 +469,7 @@ class BootAnimationPreviewerApp(Adw.Application):
         if not self.animation or self.current_part_index >= len(self.animation.parts):
             self.lbl_status_part.set_text("-")
             self.lbl_status_frame.set_text("-")
+            self.lbl_status_position.set_text("-")
             return
 
         part = self.animation.parts[self.current_part_index]
@@ -475,8 +478,10 @@ class BootAnimationPreviewerApp(Adw.Application):
         self.lbl_status_frame.set_text(f"Frame: {self.current_frame_index + 1} / {len(part['frames'])}")
 
         total = self._compute_total_logical_frames()
+        logical = self._compute_current_logical_frame()
+        self.lbl_status_position.set_text(f"Position: {logical} / {total}")
+
         if total > 0:
-            logical = self._compute_current_logical_frame()
             self.seekbar.handler_block(self._seekbar_handler_id)
             self.seekbar.set_value(logical)
             self.seekbar.handler_unblock(self._seekbar_handler_id)
@@ -721,10 +726,6 @@ class BootAnimationPreviewerApp(Adw.Application):
     def _compute_current_logical_frame(self):
         if not self.animation or not self.animation.parts:
             return 0
-        if not self.playing:
-            last_idx = len(self.animation.parts) - 1
-            if self.current_part_index == last_idx and self.current_frame_index >= len(self.animation.parts[-1]['frames']) - 1:
-                return self._compute_total_logical_frames()
         pos = 0
         for i in range(self.current_part_index):
             part = self.animation.parts[i]

@@ -388,6 +388,19 @@ class BootAnimationPreviewerApp(Adw.Application):
         control_bar_wrapper.set_margin_bottom(28)
         canvas_container.append(control_bar_wrapper)
 
+        # Seekbar
+        seekbar_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        seekbar_box.set_margin_start(20)
+        seekbar_box.set_margin_end(20)
+        seekbar_box.set_margin_bottom(8)
+        self.seekbar = Gtk.Scale(orientation=Gtk.Orientation.HORIZONTAL)
+        self.seekbar.set_draw_value(False)
+        self.seekbar.set_hexpand(True)
+        self.seekbar.set_sensitive(False)
+        self._seekbar_handler_id = self.seekbar.connect("value-changed", self.on_seekbar_value_changed)
+        seekbar_box.append(self.seekbar)
+        control_bar_wrapper.append(seekbar_box)
+
         control_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         control_bar.set_halign(Gtk.Align.CENTER)
         control_bar.set_margin_start(20)
@@ -443,10 +456,16 @@ class BootAnimationPreviewerApp(Adw.Application):
             self.animation = BootAnimation(filepath)
         except (ValueError, zipfile.BadZipFile, KeyError) as e:
             self.show_error_dialog("Invalid Boot Animation", str(e))
+            self.seekbar.set_sensitive(False)
+            self.seekbar.set_range(0, 0)
+            self.seekbar.set_value(0)
             self.drawing_area.queue_draw()
             return
         except Exception as e:
             self.show_error_dialog("Failed to Open File", str(e))
+            self.seekbar.set_sensitive(False)
+            self.seekbar.set_range(0, 0)
+            self.seekbar.set_value(0)
             self.drawing_area.queue_draw()
             return
         
@@ -463,6 +482,12 @@ class BootAnimationPreviewerApp(Adw.Application):
 
         self.update_playback_status_labels()
         self.drawing_area.queue_draw()
+
+        total = self.animation.get_total_frames()
+        self.seekbar.set_range(0, max(0, total - 1))
+        self.seekbar.set_value(0)
+        self.seekbar.set_sensitive(True)
+
         self.start_playback()
 
     def show_error_dialog(self, title, message):
@@ -477,11 +502,18 @@ class BootAnimationPreviewerApp(Adw.Application):
             self.row_current_part.set_subtitle("-")
             self.row_current_frame.set_subtitle("-")
             return
-            
+
         part = self.animation.parts[self.current_part_index]
         effective_count = part['count'] if part['count'] > 0 else self.infinite_part_loop_limit
         self.row_current_part.set_subtitle(f"{part['path']} (Play {self.current_part_play_count + 1}/{effective_count})")
         self.row_current_frame.set_subtitle(f"{self.current_frame_index + 1} / {len(part['frames'])}")
+
+        total = self.animation.get_total_frames()
+        if total > 0:
+            linear = self._part_frame_to_linear()
+            self.seekbar.handler_block(self._seekbar_handler_id)
+            self.seekbar.set_value(linear)
+            self.seekbar.handler_unblock(self._seekbar_handler_id)
 
     def on_draw(self, drawing_area, cr, width, height, user_data=None):
         cr.set_source_rgb(0.08, 0.08, 0.08)
@@ -698,6 +730,35 @@ class BootAnimationPreviewerApp(Adw.Application):
                 self.stop_playback()
                 self.current_part_index = len(self.animation.parts) - 1
                 self.current_frame_index = len(self.animation.parts[-1]['frames']) - 1
+
+    def _part_frame_to_linear(self):
+        linear = 0
+        for i in range(self.current_part_index):
+            linear += len(self.animation.parts[i]['frames'])
+        linear += self.current_frame_index
+        return linear
+
+    def _linear_to_part_frame(self, linear_index):
+        for part_idx, part in enumerate(self.animation.parts):
+            n = len(part['frames'])
+            if linear_index < n:
+                return part_idx, linear_index
+            linear_index -= n
+        last_idx = len(self.animation.parts) - 1
+        last_frame = len(self.animation.parts[last_idx]['frames']) - 1
+        return last_idx, max(0, last_frame)
+
+    def on_seekbar_value_changed(self, scale):
+        if not self.animation or not self.animation.parts:
+            return
+        linear = int(scale.get_value())
+        part_idx, frame_idx = self._linear_to_part_frame(linear)
+        self.current_part_index = part_idx
+        self.current_frame_index = frame_idx
+        self.current_part_play_count = 0
+        self.pause_remaining_frames = 0
+        self.update_playback_status_labels()
+        self.drawing_area.queue_draw()
 
     # Callbacks
     def on_play_pause_clicked(self, btn):

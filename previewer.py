@@ -542,7 +542,7 @@ class BootAnimationPreviewerApp(Adw.Application):
         if preset["name"] == "Custom Dimensions":
             dev_w = int(self.custom_w_spin.get_value())
             dev_h = int(self.custom_h_spin.get_value())
-        elif not self.animation or preset["width"] is None or preset["height"] is None:
+        elif preset["width"] is None or preset["height"] is None:
             if self.animation:
                 dev_w = self.animation.width or 1080
                 dev_h = self.animation.height or 1920

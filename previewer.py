@@ -1056,7 +1056,6 @@ class BootAnimationPreviewerApp(Adw.Application):
                 subprocess.run([
                     'ffmpeg', '-y',
                     '-f', 'image2',
-                    '-framerate', fr,
                     '-i', input_pattern,
                     '-vf', 'palettegen=max_colors=256:stats_mode=diff',
                     palette_path,
@@ -1069,7 +1068,8 @@ class BootAnimationPreviewerApp(Adw.Application):
                     '-framerate', fr,
                     '-i', input_pattern,
                     '-i', palette_path,
-                    '-lavfi', 'paletteuse=dither=bayer:bayer_scale=5',
+                    '-filter_complex',
+                    f'[0:v]setpts=N/({fr}*TB)[v];[v][1:v]paletteuse=dither=bayer:bayer_scale=5',
                     '-loop', '0',
                     state['filepath'],
                     '-loglevel', 'error'

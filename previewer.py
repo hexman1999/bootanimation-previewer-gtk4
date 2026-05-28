@@ -838,6 +838,7 @@ class BootAnimationPreviewerApp(Adw.Application):
         box.set_margin_bottom(8)
         fields = [
             ("File Name", self._meta_filename),
+            ("File Path", self.animation.filepath),
             ("Resolution", self._meta_resolution),
             ("Frame Rate", self._meta_fps),
             ("Parts", self._meta_parts),
@@ -848,8 +849,11 @@ class BootAnimationPreviewerApp(Adw.Application):
             lbl = Gtk.Label(label=f"{label}:")
             lbl.set_xalign(0)
             lbl.set_width_chars(12)
-            val = Gtk.Label(label=value)
-            val.set_xalign(0)
+            val = Gtk.Entry()
+            val.set_text(value)
+            val.set_editable(False)
+            val.set_can_target(True)
+            val.set_hexpand(True)
             val.add_css_class("monospace")
             row.append(lbl)
             row.append(val)

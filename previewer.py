@@ -4,6 +4,7 @@ import re
 import shutil
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 import zipfile
 import cairo
 import gi
@@ -820,6 +821,10 @@ class BootAnimationPreviewerApp(Adw.Application):
         surface.flush()
         return surface
 
+    def _render_frame_to_array(self, part_idx, frame_idx, dev_w, dev_h):
+        surface = self.render_frame_to_surface(part_idx, frame_idx, dev_w, dev_h)
+        return self.surface_to_numpy_rgb(surface)
+
     def surface_to_numpy_rgb(self, surface):
         data = surface.get_data()
         arr = numpy.frombuffer(data, dtype=numpy.uint8).reshape((surface.get_height(), surface.get_width(), 4))
@@ -908,6 +913,15 @@ class BootAnimationPreviewerApp(Adw.Application):
         state['tmp_mp4'] = tmp_mp4
         state['writer'] = writer
 
+        n_workers = max(1, os.cpu_count() - 1)
+        executor = ThreadPoolExecutor(max_workers=n_workers)
+        futures = []
+        for part_idx, frame_idx in frames:
+            futures.append(executor.submit(self._render_frame_to_array, part_idx, frame_idx, dev_w, dev_h))
+        state['executor'] = executor
+        state['futures'] = futures
+        state['next_to_write'] = 0
+
         self._export_state = state
 
         export_dialog = Adw.AlertDialog(
@@ -973,32 +987,42 @@ class BootAnimationPreviewerApp(Adw.Application):
 
     def _export_process_batch(self):
         state = self._export_state
-        batch_size = 3
+        futures = state['futures']
+        batch_size = 30
 
         try:
+            written = 0
             for _ in range(batch_size):
                 if state.get('cancelled'):
+                    state['executor'].shutdown(wait=False)
                     self._abort_export_writer()
                     self._finish_export(cancelled=True)
                     return False
 
-                if state['idx'] >= state['total']:
+                ntw = state['next_to_write']
+                if ntw >= state['total']:
                     break
 
-                part_idx, frame_idx = state['frames'][state['idx']]
-                surface = self.render_frame_to_surface(part_idx, frame_idx, state['dev_w'], state['dev_h'])
-                rgb_array = self.surface_to_numpy_rgb(surface)
-                bgr = cv2.cvtColor(rgb_array, cv2.COLOR_RGB2BGR)
-                state['writer'].write(bgr)
-                state['idx'] += 1
+                future = futures[ntw]
+                if not future.done():
+                    break
 
-            if state['idx'] < state['total']:
-                if self._export_dialog:
-                    self._export_dialog.set_body(f"Rendered {state['idx']}/{state['total']} frames...")
+                rgb = future.result()
+                futures[ntw] = None
+                bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+                state['writer'].write(bgr)
+                state['next_to_write'] = ntw + 1
+                written += 1
+
+            if state['next_to_write'] < state['total']:
+                if self._export_dialog and written > 0:
+                    self._export_dialog.set_body(f"Rendered {state['next_to_write']}/{state['total']} frames...")
                 return True
 
+            state['executor'].shutdown(wait=False)
             self._finish_export(encode=True)
         except Exception as e:
+            state['executor'].shutdown(wait=False)
             self._abort_export_writer()
             self._finish_export(error=str(e))
 
@@ -1043,6 +1067,7 @@ class BootAnimationPreviewerApp(Adw.Application):
                     'ffmpeg', '-y',
                     '-i', state['tmp_mp4'],
                     '-vf', 'palettegen=max_colors=256:stats_mode=diff',
+                    '-threads', '0',
                     palette_path,
                     '-loglevel', 'error'
                 ], check=True, capture_output=True)
@@ -1051,6 +1076,7 @@ class BootAnimationPreviewerApp(Adw.Application):
                     '-i', state['tmp_mp4'],
                     '-i', palette_path,
                     '-lavfi', 'paletteuse=dither=bayer:bayer_scale=5',
+                    '-threads', '0',
                     '-loop', '0',
                     state['filepath'],
                     '-loglevel', 'error'
@@ -1081,6 +1107,9 @@ class BootAnimationPreviewerApp(Adw.Application):
 
     def _cleanup_export(self):
         if hasattr(self, '_export_state') and self._export_state:
+            executor = self._export_state.get('executor')
+            if executor:
+                executor.shutdown(wait=False)
             tmp = self._export_state.get('tmp_mp4')
             if tmp:
                 palette = tmp + '.png'

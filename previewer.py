@@ -227,6 +227,8 @@ class BootAnimationPreviewerApp(Adw.Application):
         self._meta_parts = "-"
         self._meta_frames = "-"
 
+        self._hold_source_id = None
+
     def do_activate(self):
         self.build_ui()
         Adw.StyleManager.get_default().set_color_scheme(Adw.ColorScheme.PREFER_DARK)
@@ -240,6 +242,7 @@ class BootAnimationPreviewerApp(Adw.Application):
         self.window.set_content(self.toast_overlay)
 
         key_ctrl = Gtk.EventControllerKey()
+        key_ctrl.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
         key_ctrl.connect("key-pressed", self._on_window_key_pressed)
         self.window.add_controller(key_ctrl)
 
@@ -373,15 +376,25 @@ class BootAnimationPreviewerApp(Adw.Application):
         btn_prev = Gtk.Button(icon_name="go-previous-symbolic")
         btn_prev.add_css_class("circular")
         btn_prev.set_tooltip_text("Previous Frame")
-        btn_prev.connect("clicked", self.on_prev_frame_clicked)
         control_bar.append(btn_prev)
+
+        prev_gesture = Gtk.GestureClick()
+        prev_gesture.connect("pressed", self._on_prev_pressed)
+        prev_gesture.connect("released", self._on_hold_released)
+        prev_gesture.connect("stopped", self._on_hold_stopped)
+        btn_prev.add_controller(prev_gesture)
 
         # Next frame button
         btn_next = Gtk.Button(icon_name="go-next-symbolic")
         btn_next.add_css_class("circular")
         btn_next.set_tooltip_text("Next Frame")
-        btn_next.connect("clicked", self.on_next_frame_clicked)
         control_bar.append(btn_next)
+
+        next_gesture = Gtk.GestureClick()
+        next_gesture.connect("pressed", self._on_next_pressed)
+        next_gesture.connect("released", self._on_hold_released)
+        next_gesture.connect("stopped", self._on_hold_stopped)
+        btn_next.add_controller(next_gesture)
 
         # Loop toggle
         self.btn_loop = Gtk.ToggleButton(icon_name="media-playlist-repeat-symbolic")
@@ -813,15 +826,9 @@ class BootAnimationPreviewerApp(Adw.Application):
         self.stop_playback()
         if not self.animation:
             return
-            
-        self.current_frame_index -= 1
-        if self.current_frame_index < 0:
-            self.current_part_index -= 1
-            if self.current_part_index < 0:
-                self.current_part_index = len(self.animation.parts) - 1
-            part = self.animation.parts[self.current_part_index]
-            self.current_frame_index = len(part['frames']) - 1
-            
+        logical = self._compute_current_logical_frame()
+        if logical > 0:
+            self._seek_to_logical_frame(logical - 1)
         self.update_playback_status_labels()
         self.drawing_area.queue_draw()
 
@@ -829,17 +836,38 @@ class BootAnimationPreviewerApp(Adw.Application):
         self.stop_playback()
         if not self.animation:
             return
-            
-        part = self.animation.parts[self.current_part_index]
-        self.current_frame_index += 1
-        if self.current_frame_index >= len(part['frames']):
-            self.current_part_index += 1
-            if self.current_part_index >= len(self.animation.parts):
-                self.current_part_index = 0
-            self.current_frame_index = 0
-            
+        total = self._compute_total_logical_frames()
+        logical = self._compute_current_logical_frame()
+        if logical < total:
+            self._seek_to_logical_frame(logical + 1)
         self.update_playback_status_labels()
         self.drawing_area.queue_draw()
+
+    def _on_prev_pressed(self, gesture, n_press, x, y):
+        self.on_prev_frame_clicked(None)
+        self._start_hold_repeat(self.on_prev_frame_clicked)
+
+    def _on_next_pressed(self, gesture, n_press, x, y):
+        self.on_next_frame_clicked(None)
+        self._start_hold_repeat(self.on_next_frame_clicked)
+
+    def _start_hold_repeat(self, callback):
+        self._cancel_hold()
+        def repeat():
+            callback(None)
+            return True
+        self._hold_source_id = GLib.timeout_add(100, repeat)
+
+    def _on_hold_released(self, gesture, n_press, x, y):
+        self._cancel_hold()
+
+    def _on_hold_stopped(self, gesture):
+        self._cancel_hold()
+
+    def _cancel_hold(self):
+        if self._hold_source_id:
+            GLib.source_remove(self._hold_source_id)
+            self._hold_source_id = None
 
     def on_loop_toggled(self, btn):
         self.loop_entire = btn.get_active()
@@ -1470,9 +1498,9 @@ class BootAnimationPreviewerApp(Adw.Application):
         elif keyval in (Gdk.KEY_d, Gdk.KEY_D, Gdk.KEY_Right):
             self.on_next_frame_clicked(None)
         elif keyval in (Gdk.KEY_l, Gdk.KEY_L):
-            self.on_loop_toggled(self.btn_loop)
+            self.btn_loop.set_active(not self.btn_loop.get_active())
         elif keyval in (Gdk.KEY_t, Gdk.KEY_T):
-            self.on_status_info_toggled(self.btn_status_info)
+            self.btn_status_info.set_active(not self.btn_status_info.get_active())
         else:
             return False
         return True

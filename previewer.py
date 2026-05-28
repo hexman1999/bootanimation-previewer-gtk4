@@ -12,7 +12,8 @@ gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 gi.require_version('Gdk', '4.0')
 gi.require_version('GdkPixbuf', '2.0')
-from gi.repository import GLib, Gio, Gtk, Gdk, GdkPixbuf, Adw
+gi.require_version('Pango', '1.0')
+from gi.repository import GLib, Gio, Gtk, Gdk, GdkPixbuf, Adw, Pango
 import cv2
 import numpy
 
@@ -212,140 +213,73 @@ class BootAnimationPreviewerApp(Adw.Application):
         
         self.workspace_dir = "/home/muhammad/Desktop/bootanimation previewer antigravity"
 
+        self._custom_preset_index = next(i for i, p in enumerate(DEVICE_PRESETS) if p["name"] == "Custom Dimensions")
+
+        # Custom Dimensions spin buttons (hidden, used as data source for the popup)
+        adj_w = Gtk.Adjustment.new(1080.0, 100.0, 8000.0, 10.0, 100.0, 0.0)
+        self.custom_w_spin = Gtk.SpinButton(adjustment=adj_w, climb_rate=10.0, digits=0)
+        adj_h = Gtk.Adjustment.new(2400.0, 100.0, 8000.0, 10.0, 100.0, 0.0)
+        self.custom_h_spin = Gtk.SpinButton(adjustment=adj_h, climb_rate=10.0, digits=0)
+
+        self._meta_filename = "-"
+        self._meta_resolution = "-"
+        self._meta_fps = "-"
+        self._meta_parts = "-"
+        self._meta_frames = "-"
+
+        self._hold_source_id = None
+
     def do_activate(self):
         self.build_ui()
         Adw.StyleManager.get_default().set_color_scheme(Adw.ColorScheme.PREFER_DARK)
 
+    def _set_app_icon(self):
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        svg_path = os.path.join(script_dir, "bootanimation-previewer.svg")
+        theme = Gtk.IconTheme.get_for_display(Gdk.Display.get_default())
+        if os.path.exists(svg_path):
+            theme.add_search_path(script_dir)
+            self.window.set_icon_name("bootanimation-previewer")
+        elif theme.has_icon("bootanimation-previewer"):
+            self.window.set_icon_name("bootanimation-previewer")
+        else:
+            self.window.set_icon_name("phone")
+
     def build_ui(self):
-        # Main Window
         self.window = Adw.ApplicationWindow(application=self, title="Boot Animation Previewer")
         self.window.set_default_size(1080, 750)
+        self._set_app_icon()
+        self.toast_overlay = Adw.ToastOverlay()
+        self.toast_overlay.set_child(self.build_content_area())
+        self.window.set_content(self.toast_overlay)
 
-        # Overlay Split View to allow sidebar resizing
-        self.split_view = Adw.OverlaySplitView()
-        self.split_view.set_min_sidebar_width(280)
-        self.split_view.set_max_sidebar_width(400)
-        self.split_view.set_sidebar_width_fraction(0.3)
-        self.split_view.set_show_sidebar(True)
-        self.split_view.set_pin_sidebar(True)
-        self.window.set_content(self.split_view)
-
-        # Sidebar Content
-        self.build_sidebar()
-        
-        # Main Content Preview Area
-        self.build_content_area()
+        key_ctrl = Gtk.EventControllerKey()
+        key_ctrl.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        key_ctrl.connect("key-pressed", self._on_window_key_pressed)
+        self.window.add_controller(key_ctrl)
 
         self.window.present()
 
-    def build_sidebar(self):
-        sidebar_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        sidebar_box.add_css_class("background")
-        self.split_view.set_sidebar(sidebar_box)
-
-        # Sidebar Header
-        sidebar_header = Adw.HeaderBar()
-        sidebar_header.set_show_end_title_buttons(False)
-        sidebar_box.append(sidebar_header)
-
-        # Scrolled view for sidebar metadata/options
-        scrolled = Gtk.ScrolledWindow()
-        scrolled.set_vexpand(True)
-        sidebar_box.append(scrolled)
-
-        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
-        vbox.set_margin_start(16)
-        vbox.set_margin_end(16)
-        vbox.set_margin_top(16)
-        vbox.set_margin_bottom(16)
-        scrolled.set_child(vbox)
-
-        # Custom Dimensions Group (Visible only when "Custom Dimensions" preset is selected)
-        self.custom_dim_group = Adw.PreferencesGroup(title="Custom Viewport Dimensions")
-        self.custom_dim_group.set_visible(False)
-        vbox.append(self.custom_dim_group)
-
-        # Custom Width
-        adj_w = Gtk.Adjustment.new(1080.0, 100.0, 8000.0, 10.0, 100.0, 0.0)
-        self.custom_w_spin = Gtk.SpinButton(adjustment=adj_w, climb_rate=10.0, digits=0)
-        self.custom_w_spin.set_valign(Gtk.Align.CENTER)
-        self.custom_w_spin.connect("value-changed", self.on_custom_dim_changed)
-        
-        custom_w_row = Adw.ActionRow(title="Width (px)")
-        custom_w_row.add_suffix(self.custom_w_spin)
-        self.custom_dim_group.add(custom_w_row)
-
-        # Custom Height
-        adj_h = Gtk.Adjustment.new(2400.0, 100.0, 8000.0, 10.0, 100.0, 0.0)
-        self.custom_h_spin = Gtk.SpinButton(adjustment=adj_h, climb_rate=10.0, digits=0)
-        self.custom_h_spin.set_valign(Gtk.Align.CENTER)
-        self.custom_h_spin.connect("value-changed", self.on_custom_dim_changed)
-        
-        custom_h_row = Adw.ActionRow(title="Height (px)")
-        custom_h_row.add_suffix(self.custom_h_spin)
-        self.custom_dim_group.add(custom_h_row)
-
-        # Playback Limits Group
-        playback_group = Adw.PreferencesGroup(title="Playback Rules")
-        vbox.append(playback_group)
-
-        # Spin button to customize infinite loop parts repetitions
-        adj = Gtk.Adjustment.new(5.0, 1.0, 100.0, 1.0, 5.0, 0.0)
-        self.loop_limit_spin = Gtk.SpinButton(adjustment=adj, climb_rate=1.0, digits=0)
-        self.loop_limit_spin.set_valign(Gtk.Align.CENTER)
-        self.loop_limit_spin.connect("value-changed", self.on_loop_limit_changed)
-
-        loop_limit_row = Adw.ActionRow(title="Infinite Part Repetitions")
-        loop_limit_row.set_subtitle("Default loops for parts with 0 count")
-        loop_limit_row.add_suffix(self.loop_limit_spin)
-        playback_group.add(loop_limit_row)
-
-        # Metadata / Info Group
-        self.info_group = Adw.PreferencesGroup(title="Animation Metadata")
-        vbox.append(self.info_group)
-
-        self.row_filename = Adw.ActionRow(title="File Name", subtitle="-")
-        self.row_resolution = Adw.ActionRow(title="Resolution", subtitle="-")
-        self.row_fps = Adw.ActionRow(title="Frame Rate", subtitle="-")
-        self.row_parts = Adw.ActionRow(title="Total Parts", subtitle="-")
-        self.row_frames = Adw.ActionRow(title="Total Frames", subtitle="-")
-
-        self.info_group.add(self.row_filename)
-        self.info_group.add(self.row_resolution)
-        self.info_group.add(self.row_fps)
-        self.info_group.add(self.row_parts)
-        self.info_group.add(self.row_frames)
-
-        # Player State Group
-        state_group = Adw.PreferencesGroup(title="Live Player Status")
-        vbox.append(state_group)
-
-        self.row_current_part = Adw.ActionRow(title="Current Part", subtitle="-")
-        self.row_current_frame = Adw.ActionRow(title="Current Frame", subtitle="-")
-        state_group.add(self.row_current_part)
-        state_group.add(self.row_current_frame)
-
     def build_content_area(self):
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        self.split_view.set_content(main_box)
 
         # Main HeaderBar
         content_header = Adw.HeaderBar()
         main_box.append(content_header)
 
-        # Toggle button to collapse/expand the sidebar
-        sidebar_toggle = Gtk.ToggleButton(icon_name="sidebar-show-symbolic")
-        sidebar_toggle.set_active(True)
-        sidebar_toggle.set_tooltip_text("Toggle Sidebar")
-        sidebar_toggle.connect("toggled", lambda btn: self.split_view.set_show_sidebar(btn.get_active()))
-        content_header.pack_start(sidebar_toggle)
-
         # Device Dimensions Selector in the title bar
         self.preset_combo = Gtk.DropDown.new_from_strings([p["name"] for p in DEVICE_PRESETS])
         self.preset_combo.set_selected(self.selected_preset_index)
-        self.preset_combo.connect("notify::selected", self.on_preset_changed)
+        self._preset_handler_id = self.preset_combo.connect("notify::selected", self.on_preset_changed)
         self.preset_combo.set_tooltip_text("Select Device Frame Preset")
         content_header.pack_start(self.preset_combo)
+        self._update_custom_preset_label()
+
+        self.btn_custom_dims = Gtk.Button(icon_name="document-edit-symbolic")
+        self.btn_custom_dims.set_visible(False)
+        self.btn_custom_dims.set_tooltip_text("Edit Custom Dimensions")
+        self.btn_custom_dims.connect("clicked", self._on_custom_edit_clicked)
+        content_header.pack_start(self.btn_custom_dims)
 
         # "Open Animation" button
         open_btn = Gtk.Button()
@@ -368,6 +302,15 @@ class BootAnimationPreviewerApp(Adw.Application):
         export_btn.connect("clicked", self.on_export_clicked)
         content_header.pack_end(export_btn)
 
+        # File info button
+        self.btn_file_info = Gtk.Button()
+        info_content = Adw.ButtonContent()
+        info_content.set_icon_name("dialog-information-symbolic")
+        info_content.set_label("Info")
+        self.btn_file_info.set_child(info_content)
+        self.btn_file_info.connect("clicked", self.on_file_info_clicked)
+        content_header.pack_end(self.btn_file_info)
+
         # Canvas Preview Area Container
         canvas_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         canvas_container.set_vexpand(True)
@@ -388,6 +331,37 @@ class BootAnimationPreviewerApp(Adw.Application):
         control_bar_wrapper.set_margin_bottom(28)
         canvas_container.append(control_bar_wrapper)
 
+        # Seekbar
+        seekbar_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        seekbar_box.set_margin_start(20)
+        seekbar_box.set_margin_end(20)
+        seekbar_box.set_margin_bottom(8)
+        seekbar_box.set_spacing(8)
+        self.seekbar = Gtk.Scale(orientation=Gtk.Orientation.HORIZONTAL)
+        self.seekbar.set_range(0, 1)
+        self.seekbar.set_value(0)
+        self.seekbar.set_hexpand(True)
+        self.seekbar.set_sensitive(False)
+        self._seekbar_handler_id = self.seekbar.connect("value-changed", self.on_seekbar_value_changed)
+        seekbar_box.append(self.seekbar)
+        self.seekbar_label = Gtk.Label(label="0:00/0:00")
+        self.seekbar_label.set_width_chars(14)
+        seekbar_box.append(self.seekbar_label)
+        control_bar_wrapper.append(seekbar_box)
+
+        # Player status info bar
+        self.status_info_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=24)
+        self.status_info_bar.set_halign(Gtk.Align.CENTER)
+        self.status_info_bar.set_margin_bottom(6)
+        self.status_info_bar.set_visible(False)
+        self.lbl_status_part = Gtk.Label(label="Open a file to start")
+        self.lbl_status_frame = Gtk.Label(label="")
+        self.lbl_status_position = Gtk.Label(label="")
+        self.status_info_bar.append(self.lbl_status_part)
+        self.status_info_bar.append(self.lbl_status_frame)
+        self.status_info_bar.append(self.lbl_status_position)
+        control_bar_wrapper.append(self.status_info_bar)
+
         control_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         control_bar.set_halign(Gtk.Align.CENTER)
         control_bar.set_margin_start(20)
@@ -398,31 +372,46 @@ class BootAnimationPreviewerApp(Adw.Application):
         self.btn_play_pause = Gtk.Button(icon_name="media-playback-start-symbolic")
         self.btn_play_pause.add_css_class("circular")
         self.btn_play_pause.add_css_class("suggested-action")
+        self.btn_play_pause.set_tooltip_text("Play / Pause")
         self.btn_play_pause.connect("clicked", self.on_play_pause_clicked)
         control_bar.append(self.btn_play_pause)
 
         # Stop button
         btn_stop = Gtk.Button(icon_name="media-playback-stop-symbolic")
         btn_stop.add_css_class("circular")
+        btn_stop.set_tooltip_text("Stop")
         btn_stop.connect("clicked", self.on_stop_clicked)
         control_bar.append(btn_stop)
 
         # Prev frame button
         btn_prev = Gtk.Button(icon_name="go-previous-symbolic")
         btn_prev.add_css_class("circular")
-        btn_prev.connect("clicked", self.on_prev_frame_clicked)
+        btn_prev.set_tooltip_text("Previous Frame")
         control_bar.append(btn_prev)
+
+        prev_gesture = Gtk.GestureClick()
+        prev_gesture.connect("pressed", self._on_prev_pressed)
+        prev_gesture.connect("released", self._on_hold_released)
+        prev_gesture.connect("stopped", self._on_hold_stopped)
+        btn_prev.add_controller(prev_gesture)
 
         # Next frame button
         btn_next = Gtk.Button(icon_name="go-next-symbolic")
         btn_next.add_css_class("circular")
-        btn_next.connect("clicked", self.on_next_frame_clicked)
+        btn_next.set_tooltip_text("Next Frame")
         control_bar.append(btn_next)
+
+        next_gesture = Gtk.GestureClick()
+        next_gesture.connect("pressed", self._on_next_pressed)
+        next_gesture.connect("released", self._on_hold_released)
+        next_gesture.connect("stopped", self._on_hold_stopped)
+        btn_next.add_controller(next_gesture)
 
         # Loop toggle
         self.btn_loop = Gtk.ToggleButton(icon_name="media-playlist-repeat-symbolic")
         self.btn_loop.add_css_class("circular")
         self.btn_loop.set_active(self.loop_entire)
+        self.btn_loop.set_tooltip_text("Loop")
         self.btn_loop.connect("toggled", self.on_loop_toggled)
         control_bar.append(self.btn_loop)
 
@@ -432,15 +421,29 @@ class BootAnimationPreviewerApp(Adw.Application):
         self.speed_combo.connect("notify::selected", self.on_speed_changed)
         control_bar.append(self.speed_combo)
 
+        # Player status info toggle
+        self.btn_status_info = Gtk.ToggleButton(icon_name="dialog-information-symbolic")
+        self.btn_status_info.add_css_class("circular")
+        self.btn_status_info.set_active(False)
+        self.btn_status_info.set_tooltip_text("Toggle Player Status")
+        self.btn_status_info.connect("toggled", self.on_status_info_toggled)
+        control_bar.append(self.btn_status_info)
+
+        # Infinite part repetitions
+        adj = Gtk.Adjustment.new(5.0, 1.0, 100.0, 1.0, 5.0, 0.0)
+        self.loop_limit_spin = Gtk.SpinButton(adjustment=adj, climb_rate=1.0, digits=0)
+        self.loop_limit_spin.set_tooltip_text("Default loops for parts with 0 count")
+        self.loop_limit_spin.connect("value-changed", self.on_loop_limit_changed)
+        control_bar.append(Gtk.Label(label="Repetitions:"))
+        control_bar.append(self.loop_limit_spin)
+
+        return main_box
+
     def load_animation(self, filepath):
         self.stop_playback()
-        
-        if self.animation:
-            self.animation.close()
-            self.animation = None
 
         try:
-            self.animation = BootAnimation(filepath)
+            new_anim = BootAnimation(filepath)
         except (ValueError, zipfile.BadZipFile, KeyError) as e:
             self.show_error_dialog("Invalid Boot Animation", str(e))
             self.drawing_area.queue_draw()
@@ -449,20 +452,30 @@ class BootAnimationPreviewerApp(Adw.Application):
             self.show_error_dialog("Failed to Open File", str(e))
             self.drawing_area.queue_draw()
             return
+
+        if self.animation:
+            self.animation.close()
+        self.animation = new_anim
         
         self.current_part_index = 0
         self.current_frame_index = 0
         self.current_part_play_count = 0
         self.pause_remaining_frames = 0
         
-        self.row_filename.set_subtitle(self.animation.filename)
-        self.row_resolution.set_subtitle(f"{self.animation.width} x {self.animation.height}")
-        self.row_fps.set_subtitle(f"{self.animation.fps} FPS")
-        self.row_parts.set_subtitle(str(len(self.animation.parts)))
-        self.row_frames.set_subtitle(str(self.animation.get_total_frames()))
+        self._meta_filename = self.animation.filename
+        self._meta_resolution = f"{self.animation.width} x {self.animation.height}"
+        self._meta_fps = f"{self.animation.fps} FPS"
+        self._meta_parts = str(len(self.animation.parts))
+        self._meta_frames = str(self.animation.get_total_frames())
 
         self.update_playback_status_labels()
         self.drawing_area.queue_draw()
+
+        total = self._compute_total_logical_frames()
+        self.seekbar.set_range(0, max(0, total))
+        self.seekbar.set_value(0)
+        self.seekbar.set_sensitive(True)
+
         self.start_playback()
 
     def show_error_dialog(self, title, message):
@@ -474,30 +487,44 @@ class BootAnimationPreviewerApp(Adw.Application):
 
     def update_playback_status_labels(self):
         if not self.animation or self.current_part_index >= len(self.animation.parts):
-            self.row_current_part.set_subtitle("-")
-            self.row_current_frame.set_subtitle("-")
+            self.lbl_status_part.set_text("-")
+            self.lbl_status_frame.set_text("-")
+            self.lbl_status_position.set_text("-")
             return
-            
+
         part = self.animation.parts[self.current_part_index]
         effective_count = part['count'] if part['count'] > 0 else self.infinite_part_loop_limit
-        self.row_current_part.set_subtitle(f"{part['path']} (Play {self.current_part_play_count + 1}/{effective_count})")
-        self.row_current_frame.set_subtitle(f"{self.current_frame_index + 1} / {len(part['frames'])}")
+        self.lbl_status_part.set_text(f"Part: {part['path']} (Play {self.current_part_play_count + 1}/{effective_count})")
+        self.lbl_status_frame.set_text(f"Frame: {self.current_frame_index + 1} / {len(part['frames'])}")
+
+        total = self._compute_total_logical_frames()
+        logical = self._compute_current_logical_frame()
+        self.lbl_status_position.set_text(f"Position: {logical} / {total}")
+
+        if total > 0:
+            self.seekbar.handler_block(self._seekbar_handler_id)
+            self.seekbar.set_value(logical)
+            self.seekbar.handler_unblock(self._seekbar_handler_id)
+            fps = self.animation.fps or 30
+            cur = int(logical / fps) if fps > 0 else 0
+            tot = int(total / fps) if fps > 0 else 0
+            self.seekbar_label.set_text(f"{cur//60}:{cur%60:02d}/{tot//60}:{tot%60:02d}")
 
     def on_draw(self, drawing_area, cr, width, height, user_data=None):
         cr.set_source_rgb(0.08, 0.08, 0.08)
         cr.paint()
 
-        if not self.animation:
-            return
-
         preset = DEVICE_PRESETS[self.selected_preset_index]
-        
+
         if preset["name"] == "Custom Dimensions":
             dev_w = int(self.custom_w_spin.get_value())
             dev_h = int(self.custom_h_spin.get_value())
         elif preset["width"] is None or preset["height"] is None:
-            dev_w = self.animation.width or 1080
-            dev_h = self.animation.height or 1920
+            if self.animation:
+                dev_w = self.animation.width or 1080
+                dev_h = self.animation.height or 1920
+            else:
+                dev_w, dev_h = 1080, 2400
         else:
             dev_w = preset["width"]
             dev_h = preset["height"]
@@ -515,7 +542,10 @@ class BootAnimationPreviewerApp(Adw.Application):
         cr.save()
         cr.set_source_rgb(0.18, 0.18, 0.18)
         cr.set_line_width(8)
-        cr.round_rectangle(dev_x - 4, dev_y - 4, dev_disp_w + 8, dev_disp_h + 8, 20, 20) if hasattr(cr, 'round_rectangle') else cr.rectangle(dev_x - 4, dev_y - 4, dev_disp_w + 8, dev_disp_h + 8)
+        if hasattr(cr, 'round_rectangle'):
+            cr.round_rectangle(dev_x - 4, dev_y - 4, dev_disp_w + 8, dev_disp_h + 8, 20, 20)
+        else:
+            cr.rectangle(dev_x - 4, dev_y - 4, dev_disp_w + 8, dev_disp_h + 8)
         cr.stroke()
         cr.restore()
 
@@ -523,6 +553,13 @@ class BootAnimationPreviewerApp(Adw.Application):
         cr.save()
         cr.rectangle(dev_x, dev_y, dev_disp_w, dev_disp_h)
         cr.clip()
+
+        if not self.animation:
+            cr.set_source_rgb(0, 0, 0)
+            cr.rectangle(dev_x, dev_y, dev_disp_w, dev_disp_h)
+            cr.fill()
+            cr.restore()
+            return
 
         bg_r, bg_g, bg_b = 0.0, 0.0, 0.0
         if self.current_part_index < len(self.animation.parts):
@@ -604,13 +641,31 @@ class BootAnimationPreviewerApp(Adw.Application):
             return
         if not self.animation:
             return
-            
+
+        if self._is_at_end():
+            self.current_part_index = 0
+            self.current_frame_index = 0
+            self.current_part_play_count = 0
+            self.pause_remaining_frames = 0
+            self.update_playback_status_labels()
+            self.drawing_area.queue_draw()
+
         self.playing = True
         self.btn_play_pause.set_icon_name("media-playback-pause-symbolic")
-        
+
         fps = self.animation.fps or 30
         interval = int(1000 / (fps * self.speed_multiplier))
         self.timer_id = GLib.timeout_add(interval, self.on_tick)
+
+    def _is_at_end(self):
+        if not self.animation or not self.animation.parts:
+            return True
+        last_idx = len(self.animation.parts) - 1
+        if self.current_part_index < last_idx:
+            return False
+        if self.current_frame_index < len(self.animation.parts[-1]['frames']) - 1:
+            return False
+        return True
 
     def stop_playback(self):
         self.playing = False
@@ -681,6 +736,83 @@ class BootAnimationPreviewerApp(Adw.Application):
                 self.current_part_index = len(self.animation.parts) - 1
                 self.current_frame_index = len(self.animation.parts[-1]['frames']) - 1
 
+    def _compute_total_logical_frames(self):
+        total = 0
+        for part in self.animation.parts:
+            ec = part['count'] if part['count'] > 0 else self.infinite_part_loop_limit
+            total += ec * (len(part['frames']) + part['pause'])
+        return total
+
+    def _compute_current_logical_frame(self):
+        if not self.animation or not self.animation.parts:
+            return 0
+        pos = 0
+        for i in range(self.current_part_index):
+            part = self.animation.parts[i]
+            ec = part['count'] if part['count'] > 0 else self.infinite_part_loop_limit
+            pos += ec * (len(part['frames']) + part['pause'])
+        part = self.animation.parts[self.current_part_index]
+        ec = part['count'] if part['count'] > 0 else self.infinite_part_loop_limit
+        pos += self.current_part_play_count * (len(part['frames']) + part['pause'])
+        if self.pause_remaining_frames > 0:
+            pos += len(part['frames']) + (part['pause'] - self.pause_remaining_frames)
+        else:
+            pos += self.current_frame_index
+        return pos
+
+    def _seek_to_logical_frame(self, logical_pos):
+        if not self.animation or not self.animation.parts:
+            return
+        total = self._compute_total_logical_frames()
+        logical_pos = max(0, min(total, logical_pos))
+        remaining = logical_pos
+        for part_idx, part in enumerate(self.animation.parts):
+            ec = part['count'] if part['count'] > 0 else self.infinite_part_loop_limit
+            play_span = len(part['frames']) + part['pause']
+            part_total = ec * play_span
+            if remaining < part_total:
+                play_count = remaining // play_span
+                within_play = remaining % play_span
+                if within_play < len(part['frames']):
+                    self.current_part_index = part_idx
+                    self.current_frame_index = within_play
+                    self.current_part_play_count = play_count
+                    self.pause_remaining_frames = 0
+                else:
+                    pause_elapsed = within_play - len(part['frames'])
+                    self.current_part_index = part_idx
+                    self.current_frame_index = len(part['frames']) - 1
+                    self.current_part_play_count = play_count
+                    self.pause_remaining_frames = part['pause'] - pause_elapsed
+                return
+            remaining -= part_total
+        last_idx = len(self.animation.parts) - 1
+        last_part = self.animation.parts[last_idx]
+        self.current_part_index = last_idx
+        self.current_frame_index = len(last_part['frames']) - 1
+        ec = last_part['count'] if last_part['count'] > 0 else self.infinite_part_loop_limit
+        self.current_part_play_count = max(0, ec - 1)
+        self.pause_remaining_frames = 0
+
+    def _seekbar_format_value(self, scale, value):
+        if not self.animation:
+            return "0.0s"
+        logical = int(value)
+        fps = self.animation.fps or 30
+        total = self._compute_total_logical_frames()
+        secs = logical / fps if fps > 0 else 0
+        total_secs = total / fps if fps > 0 else 0
+        return f"{secs:.1f}s / {total_secs:.1f}s"
+
+    def on_seekbar_value_changed(self, scale):
+        if not self.animation or not self.animation.parts:
+            return
+        logical = int(scale.get_value())
+        self.stop_playback()
+        self._seek_to_logical_frame(logical)
+        self.update_playback_status_labels()
+        self.drawing_area.queue_draw()
+
     # Callbacks
     def on_play_pause_clicked(self, btn):
         if self.playing:
@@ -701,15 +833,9 @@ class BootAnimationPreviewerApp(Adw.Application):
         self.stop_playback()
         if not self.animation:
             return
-            
-        self.current_frame_index -= 1
-        if self.current_frame_index < 0:
-            self.current_part_index -= 1
-            if self.current_part_index < 0:
-                self.current_part_index = len(self.animation.parts) - 1
-            part = self.animation.parts[self.current_part_index]
-            self.current_frame_index = len(part['frames']) - 1
-            
+        logical = self._compute_current_logical_frame()
+        if logical > 0:
+            self._seek_to_logical_frame(logical - 1)
         self.update_playback_status_labels()
         self.drawing_area.queue_draw()
 
@@ -717,20 +843,291 @@ class BootAnimationPreviewerApp(Adw.Application):
         self.stop_playback()
         if not self.animation:
             return
-            
-        part = self.animation.parts[self.current_part_index]
-        self.current_frame_index += 1
-        if self.current_frame_index >= len(part['frames']):
-            self.current_part_index += 1
-            if self.current_part_index >= len(self.animation.parts):
-                self.current_part_index = 0
-            self.current_frame_index = 0
-            
+        total = self._compute_total_logical_frames()
+        logical = self._compute_current_logical_frame()
+        if logical < total:
+            self._seek_to_logical_frame(logical + 1)
         self.update_playback_status_labels()
         self.drawing_area.queue_draw()
 
+    def _on_prev_pressed(self, gesture, n_press, x, y):
+        self.on_prev_frame_clicked(None)
+        self._start_hold_repeat(self.on_prev_frame_clicked)
+
+    def _on_next_pressed(self, gesture, n_press, x, y):
+        self.on_next_frame_clicked(None)
+        self._start_hold_repeat(self.on_next_frame_clicked)
+
+    def _start_hold_repeat(self, callback):
+        self._cancel_hold()
+        def repeat():
+            callback(None)
+            return True
+        self._hold_source_id = GLib.timeout_add(100, repeat)
+
+    def _on_hold_released(self, gesture, n_press, x, y):
+        self._cancel_hold()
+
+    def _on_hold_stopped(self, gesture):
+        self._cancel_hold()
+
+    def _cancel_hold(self):
+        if self._hold_source_id:
+            GLib.source_remove(self._hold_source_id)
+            self._hold_source_id = None
+
     def on_loop_toggled(self, btn):
         self.loop_entire = btn.get_active()
+
+    def on_status_info_toggled(self, btn):
+        self.status_info_bar.set_visible(btn.get_active())
+
+    def on_file_info_clicked(self, btn):
+        dialog = Adw.Dialog()
+        dialog.set_can_close(True)
+
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+
+        # Header with title and close
+        title_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        title_bar.set_margin_start(12)
+        title_bar.set_margin_end(12)
+        title_bar.set_margin_top(12)
+
+        title_icon = Gtk.Image(icon_name="dialog-information-symbolic")
+        title_icon.set_pixel_size(32)
+        title_icon.set_margin_end(8)
+        title_bar.append(title_icon)
+
+        title_lbl = Gtk.Label(label="Info")
+        title_lbl.set_hexpand(True)
+        title_lbl.set_xalign(0)
+        title_lbl.add_css_class("large-title")
+        title_bar.append(title_lbl)
+
+        close_btn = Gtk.Button(icon_name="window-close-symbolic")
+        close_btn.add_css_class("circular")
+        close_btn.set_valign(Gtk.Align.CENTER)
+        close_btn.connect("clicked", lambda b: dialog.close())
+        title_bar.append(close_btn)
+
+        outer.append(title_bar)
+
+        sep_title = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        sep_title.set_margin_top(8)
+        sep_title.set_margin_bottom(4)
+        outer.append(sep_title)
+
+        # Content
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        content.set_size_request(480, -1)
+        content.set_margin_start(16)
+        content.set_margin_end(16)
+        content.set_margin_top(8)
+        content.set_margin_bottom(12)
+        content.add_css_class("card")
+
+        if not self.animation:
+            no_file_lbl = Gtk.Label(label="No file open")
+            no_file_lbl.set_margin_top(24)
+            no_file_lbl.set_margin_bottom(24)
+            no_file_lbl.add_css_class("dim-label")
+            content.append(no_file_lbl)
+        else:
+            filepath = self.animation.filepath
+            fields = [
+                ("File Name", self._meta_filename),
+                ("File Path", filepath),
+                ("Resolution", self._meta_resolution),
+                ("Frame Rate", self._meta_fps),
+                ("Parts", self._meta_parts),
+                ("Frames", self._meta_frames),
+            ]
+
+            for i, (label, value) in enumerate(fields):
+                row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+                row.set_margin_start(12)
+                row.set_margin_end(12)
+                row.set_margin_top(8)
+                row.set_margin_bottom(8)
+
+                lbl = Gtk.Label(label=label)
+                lbl.set_xalign(0)
+                lbl.set_width_chars(10)
+                lbl.add_css_class("dim-label")
+                val = Gtk.Label(label=value)
+                val.set_xalign(0)
+                val.set_hexpand(True)
+                val.set_ellipsize(Pango.EllipsizeMode.END)
+                row.append(lbl)
+                row.append(val)
+
+                content.append(row)
+
+                if i < len(fields) - 1:
+                    sep = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+                    sep.set_margin_start(12)
+                    sep.set_margin_end(12)
+                    content.append(sep)
+
+        outer.append(content)
+
+        # Action buttons
+        btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        btn_box.set_halign(Gtk.Align.FILL)
+        btn_box.set_margin_top(12)
+        btn_box.set_margin_bottom(12)
+        btn_box.set_margin_start(16)
+        btn_box.set_margin_end(16)
+
+        about_btn = Gtk.Button()
+        about_content = Adw.ButtonContent()
+        about_content.set_icon_name("help-about-symbolic")
+        about_content.set_label("About")
+        about_btn.set_child(about_content)
+        about_btn.add_css_class("flat")
+        about_btn.connect("clicked", self._on_info_about_clicked)
+        btn_box.append(about_btn)
+
+        shortcuts_btn = Gtk.Button()
+        shortcuts_content = Adw.ButtonContent()
+        shortcuts_content.set_icon_name("keyboard-symbolic")
+        shortcuts_content.set_label("Shortcuts")
+        shortcuts_btn.set_child(shortcuts_content)
+        shortcuts_btn.add_css_class("flat")
+        shortcuts_btn.connect("clicked", self._on_info_shortcuts_clicked)
+        btn_box.append(shortcuts_btn)
+
+        spacer = Gtk.Box()
+        spacer.set_hexpand(True)
+        btn_box.append(spacer)
+
+        if self.animation:
+            filepath = self.animation.filepath
+            copy_btn = Gtk.Button()
+            copy_content = Adw.ButtonContent()
+            copy_content.set_icon_name("edit-copy-symbolic")
+            copy_content.set_label("Copy Path")
+            copy_btn.set_child(copy_content)
+            copy_btn.add_css_class("flat")
+            copy_btn.connect("clicked", self._on_info_copy_clicked, filepath)
+            btn_box.append(copy_btn)
+
+            open_btn = Gtk.Button()
+            open_content = Adw.ButtonContent()
+            open_content.set_icon_name("folder-open-symbolic")
+            open_content.set_label("Show in Folder")
+            open_btn.set_child(open_content)
+            open_btn.add_css_class("suggested-action")
+            open_btn.connect("clicked", self._on_info_open_clicked, filepath)
+            btn_box.append(open_btn)
+
+        outer.append(btn_box)
+        dialog.set_child(outer)
+        dialog.present(self.window)
+
+    def _on_info_copy_clicked(self, btn, filepath):
+        clipboard = Gdk.Display.get_default().get_clipboard()
+        clipboard.set(filepath)
+        toast = Adw.Toast(title="Path copied to clipboard")
+        self.toast_overlay.add_toast(toast)
+
+    def _on_info_open_clicked(self, btn, filepath):
+        filepath = os.path.abspath(filepath)
+        dir_path = os.path.dirname(filepath)
+        try:
+            result = subprocess.run(
+                ["xdg-mime", "query", "default", "inode/directory"],
+                capture_output=True, text=True, check=True
+            )
+            fm_name = result.stdout.strip().replace(".desktop", "").lower()
+            select_cmds = {
+                "dolphin": ["dolphin", "--select", filepath],
+                "nautilus": ["nautilus", "--select", filepath],
+                "nemo": ["nemo", "--select", filepath],
+                "thunar": ["thunar", dir_path],
+                "pcmanfm": ["pcmanfm", dir_path],
+                "caja": ["caja", dir_path],
+            }
+            cmd = select_cmds.get(fm_name)
+            if cmd:
+                subprocess.Popen(cmd)
+            else:
+                subprocess.Popen(["xdg-open", dir_path])
+        except Exception:
+            subprocess.Popen(["xdg-open", dir_path])
+
+    def _on_info_about_clicked(self, btn):
+        dialog = Adw.AlertDialog(heading="Boot Animation Previewer")
+
+        about_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        about_box.set_margin_top(8)
+        about_box.set_margin_bottom(8)
+        about_box.set_margin_start(12)
+        about_box.set_margin_end(12)
+
+        icon = Gtk.Image(icon_name=self.window.get_icon_name() or "phone")
+        icon.set_pixel_size(64)
+
+        body_lbl = Gtk.Label(
+            label="A GTK4/Libadwaita application for previewing and exporting Android bootanimation.zip files.\n\nCreated by Antigravity."
+        )
+        body_lbl.set_wrap(True)
+        body_lbl.set_xalign(0)
+
+        about_box.append(icon)
+        about_box.append(body_lbl)
+        dialog.set_extra_child(about_box)
+        dialog.add_response("ok", "OK")
+        dialog.set_default_response("ok")
+        dialog.present(self.window)
+
+    def _on_info_shortcuts_clicked(self, btn):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        box.set_margin_top(8)
+        box.set_margin_bottom(8)
+        box.set_margin_start(12)
+        box.set_margin_end(12)
+
+        header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        header_box.set_margin_bottom(8)
+        header_icon = Gtk.Image(icon_name="keyboard-symbolic")
+        header_icon.set_pixel_size(32)
+        header_lbl = Gtk.Label(label="Keyboard Shortcuts")
+        header_lbl.add_css_class("large-title")
+        header_box.append(header_icon)
+        header_box.append(header_lbl)
+        box.append(header_box)
+
+        shortcuts = [
+            ("Ctrl+O", "Open Animation"),
+            ("Ctrl+E", "Export"),
+            ("I", "File Info"),
+            ("Space", "Play / Pause"),
+            ("S", "Stop"),
+            ("A / ←", "Previous Frame"),
+            ("D / →", "Next Frame"),
+            ("L", "Toggle Loop"),
+            ("T", "Toggle Player Status"),
+        ]
+        for key, desc in shortcuts:
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=24)
+            key_lbl = Gtk.Label(label=key)
+            key_lbl.set_xalign(0)
+            key_lbl.set_width_chars(8)
+            key_lbl.add_css_class("monospace")
+            desc_lbl = Gtk.Label(label=desc)
+            desc_lbl.set_xalign(0)
+            desc_lbl.set_hexpand(True)
+            row.append(key_lbl)
+            row.append(desc_lbl)
+            box.append(row)
+
+        dialog = Adw.AlertDialog()
+        dialog.set_extra_child(box)
+        dialog.add_response("ok", "OK")
+        dialog.set_default_response("ok")
+        dialog.present(self.window)
 
     def on_speed_changed(self, combo, pspec):
         selected = combo.get_selected()
@@ -742,18 +1139,80 @@ class BootAnimationPreviewerApp(Adw.Application):
                 self.start_playback()
 
     def on_preset_changed(self, combo, pspec):
+        preset = DEVICE_PRESETS[combo.get_selected()]
+
+        if preset["name"] == "Custom Dimensions":
+            self.selected_preset_index = combo.get_selected()
+            self.btn_custom_dims.set_visible(True)
+            self._show_custom_dimensions_dialog()
+            return
+
+        self.btn_custom_dims.set_visible(False)
         self.selected_preset_index = combo.get_selected()
-        preset = DEVICE_PRESETS[self.selected_preset_index]
-        
-        is_custom = (preset["name"] == "Custom Dimensions")
-        self.custom_dim_group.set_visible(is_custom)
         self.drawing_area.queue_draw()
+
+    def _on_custom_edit_clicked(self, btn):
+        self._show_custom_dimensions_dialog()
+
+    def _update_custom_preset_label(self):
+        model = self.preset_combo.get_model()
+        w = int(self.custom_w_spin.get_value())
+        h = int(self.custom_h_spin.get_value())
+        model.splice(self._custom_preset_index, 1, [f"Custom Dimensions ({w}\u00d7{h})"])
+
+    def _show_custom_dimensions_dialog(self):
+        cur_w = int(self.custom_w_spin.get_value())
+        cur_h = int(self.custom_h_spin.get_value())
+        dialog = Adw.AlertDialog(heading="Custom Viewport Dimensions", body=f"Set preview viewport width and height. Current: {cur_w}×{cur_h}")
+
+        adj_w = Gtk.Adjustment.new(cur_w, 100.0, 8000.0, 10.0, 100.0, 0.0)
+        w_spin = Gtk.SpinButton(adjustment=adj_w, climb_rate=10.0, digits=0)
+        adj_h = Gtk.Adjustment.new(cur_h, 100.0, 8000.0, 10.0, 100.0, 0.0)
+        h_spin = Gtk.SpinButton(adjustment=adj_h, climb_rate=10.0, digits=0)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        box.set_margin_top(12)
+        box.set_margin_bottom(12)
+        box.set_margin_start(12)
+        box.set_margin_end(12)
+
+        w_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        w_row.append(Gtk.Label(label="Width (px):"))
+        w_row.append(w_spin)
+        box.append(w_row)
+
+        h_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        h_row.append(Gtk.Label(label="Height (px):"))
+        h_row.append(h_spin)
+        box.append(h_row)
+
+        dialog.set_extra_child(box)
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("apply", "Apply")
+        dialog.set_default_response("apply")
+        dialog.set_response_appearance("apply", Adw.ResponseAppearance.SUGGESTED)
+        dialog.connect("response", self._on_custom_dim_dialog_response, w_spin, h_spin)
+        dialog.present(self.window)
+
+    def _on_custom_dim_dialog_response(self, dialog, response, w_spin, h_spin):
+        if response == "apply":
+            self.custom_w_spin.set_value(w_spin.get_value())
+            self.custom_h_spin.set_value(h_spin.get_value())
+            self.selected_preset_index = self.preset_combo.get_selected()
+            self._update_custom_preset_label()
+            self.drawing_area.queue_draw()
+        else:
+            self.preset_combo.handler_block(self._preset_handler_id)
+            self.preset_combo.set_selected(self.selected_preset_index)
+            self.preset_combo.handler_unblock(self._preset_handler_id)
 
     def on_custom_dim_changed(self, spin):
         self.drawing_area.queue_draw()
 
     def on_loop_limit_changed(self, spin):
         self.infinite_part_loop_limit = int(spin.get_value())
+        total = self._compute_total_logical_frames() if self.animation else 0
+        self.seekbar.set_range(0, max(0, total))
         self.update_playback_status_labels()
 
     def on_open_file(self, btn):
@@ -775,6 +1234,9 @@ class BootAnimationPreviewerApp(Adw.Application):
             if file_info:
                 filepath = file_info.get_path()
                 self.load_animation(filepath)
+        except GLib.Error as e:
+            if e.domain != 'g-io-error-quark' or e.code != Gio.IOErrorEnum.DISMISSED:
+                print(f"Error selecting file: {e}")
         except Exception as e:
             print(f"Error selecting file: {e}")
 
@@ -865,6 +1327,9 @@ class BootAnimationPreviewerApp(Adw.Application):
                 return
             filepath = file_info.get_path()
             self.do_export(filepath)
+        except GLib.Error as e:
+            if e.domain != 'g-io-error-quark' or e.code != Gio.IOErrorEnum.DISMISSED:
+                self.show_error_dialog("Export Error", f"Failed to save file: {e}")
         except Exception as e:
             self.show_error_dialog("Export Error", f"Failed to save file: {e}")
 
@@ -1126,6 +1591,31 @@ class BootAnimationPreviewerApp(Adw.Application):
         dialog.set_default_response("ok")
         dialog.present(self.window)
 
+
+    def _on_window_key_pressed(self, controller, keyval, keycode, state):
+        ctrl = state & Gdk.ModifierType.CONTROL_MASK
+
+        if ctrl and keyval in (Gdk.KEY_o, Gdk.KEY_O):
+            self.on_open_file(None)
+        elif ctrl and keyval in (Gdk.KEY_e, Gdk.KEY_E):
+            self.on_export_clicked(None)
+        elif keyval in (Gdk.KEY_i, Gdk.KEY_I):
+            self.on_file_info_clicked(None)
+        elif keyval == Gdk.KEY_space:
+            self.on_play_pause_clicked(None)
+        elif keyval in (Gdk.KEY_s, Gdk.KEY_S):
+            self.on_stop_clicked(None)
+        elif keyval in (Gdk.KEY_a, Gdk.KEY_A, Gdk.KEY_Left):
+            self.on_prev_frame_clicked(None)
+        elif keyval in (Gdk.KEY_d, Gdk.KEY_D, Gdk.KEY_Right):
+            self.on_next_frame_clicked(None)
+        elif keyval in (Gdk.KEY_l, Gdk.KEY_L):
+            self.btn_loop.set_active(not self.btn_loop.get_active())
+        elif keyval in (Gdk.KEY_t, Gdk.KEY_T):
+            self.btn_status_info.set_active(not self.btn_status_info.get_active())
+        else:
+            return False
+        return True
 
 if __name__ == "__main__":
     app = BootAnimationPreviewerApp()

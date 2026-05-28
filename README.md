@@ -43,6 +43,9 @@ python3 previewer.py
 
 ### Interface
 
+<img width="1130" height="800" alt="image" src="https://github.com/user-attachments/assets/315aff56-eb99-4763-b2a9-db6b3e45fc10" />
+
+
 | Control | Location | Description |
 |---------|----------|-------------|
 | **Open Animation** | Header bar | Load a `bootanimation.zip` file |

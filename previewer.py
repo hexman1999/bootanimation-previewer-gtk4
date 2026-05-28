@@ -442,6 +442,7 @@ class BootAnimationPreviewerApp(Adw.Application):
         self.btn_status_info = Gtk.ToggleButton(icon_name="dialog-information-symbolic")
         self.btn_status_info.add_css_class("circular")
         self.btn_status_info.set_active(False)
+        self.btn_status_info.set_sensitive(False)
         self.btn_status_info.set_tooltip_text("Toggle Player Status")
         self.btn_status_info.connect("toggled", self.on_status_info_toggled)
         control_bar.append(self.btn_status_info)
@@ -485,6 +486,8 @@ class BootAnimationPreviewerApp(Adw.Application):
 
         self.update_playback_status_labels()
         self.drawing_area.queue_draw()
+
+        self.btn_status_info.set_sensitive(True)
 
         total = self._compute_total_logical_frames()
         self.seekbar.set_range(0, max(0, total))

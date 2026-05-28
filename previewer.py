@@ -190,7 +190,7 @@ class BootAnimation:
 
 class BootAnimationPreviewerApp(Adw.Application):
     def __init__(self):
-        super().__init__(application_id="org.antigravity.bootanimation_previewer",
+        super().__init__(application_id="org.hexman1999.bootanimation_previewer",
                          flags=Gio.ApplicationFlags.FLAGS_NONE)
         
         self.animation = None
@@ -211,7 +211,7 @@ class BootAnimationPreviewerApp(Adw.Application):
         self.current_part_play_count = 0
         self.pause_remaining_frames = 0
         
-        self.workspace_dir = "/home/muhammad/Desktop/bootanimation previewer antigravity"
+        self.workspace_dir = os.path.expanduser("~/.config/bootanimation_previewer")
 
         self._custom_preset_index = next(i for i, p in enumerate(DEVICE_PRESETS) if p["name"] == "Custom Dimensions")
 
@@ -1070,7 +1070,7 @@ class BootAnimationPreviewerApp(Adw.Application):
         icon.set_pixel_size(64)
 
         body_lbl = Gtk.Label(
-            label="A GTK4/Libadwaita application for previewing and exporting Android bootanimation.zip files.\n\nCreated by Antigravity."
+            label="A GTK4/Libadwaita application for previewing and exporting Android bootanimation.zip files.\n\nCreated by Hexman1999 with vibe coding."
         )
         body_lbl.set_wrap(True)
         body_lbl.set_xalign(0)

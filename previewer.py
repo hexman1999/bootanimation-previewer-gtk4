@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import os
 import re
-import subprocess
+import shutil
 import sys
 import zipfile
 import cairo
@@ -1034,7 +1034,7 @@ class BootAnimationPreviewerApp(Adw.Application):
             if ext == '.gif':
                 self._export_gif(state)
             elif ext == '.mp4':
-                os.replace(state['tmp_mp4'], state['filepath'])
+                shutil.move(state['tmp_mp4'], state['filepath'])
             else:
                 raise ValueError(f"Unsupported format: {ext}")
 

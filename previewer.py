@@ -394,9 +394,9 @@ class BootAnimationPreviewerApp(Adw.Application):
         seekbar_box.set_margin_end(20)
         seekbar_box.set_margin_bottom(8)
         self.seekbar = Gtk.Scale(orientation=Gtk.Orientation.HORIZONTAL)
-        self.seekbar.set_draw_value(False)
         self.seekbar.set_hexpand(True)
         self.seekbar.set_sensitive(False)
+        self.seekbar.set_format_value_func(self._seekbar_format_value)
         self._seekbar_handler_id = self.seekbar.connect("value-changed", self.on_seekbar_value_changed)
         seekbar_box.append(self.seekbar)
         control_bar_wrapper.append(seekbar_box)
@@ -483,8 +483,8 @@ class BootAnimationPreviewerApp(Adw.Application):
         self.update_playback_status_labels()
         self.drawing_area.queue_draw()
 
-        total = self.animation.get_total_frames()
-        self.seekbar.set_range(0, max(0, total - 1))
+        total = self._compute_total_logical_frames()
+        self.seekbar.set_range(0, max(0, total))
         self.seekbar.set_value(0)
         self.seekbar.set_sensitive(True)
 
@@ -508,11 +508,11 @@ class BootAnimationPreviewerApp(Adw.Application):
         self.row_current_part.set_subtitle(f"{part['path']} (Play {self.current_part_play_count + 1}/{effective_count})")
         self.row_current_frame.set_subtitle(f"{self.current_frame_index + 1} / {len(part['frames'])}")
 
-        total = self.animation.get_total_frames()
+        total = self._compute_total_logical_frames()
         if total > 0:
-            linear = self._part_frame_to_linear()
+            logical = self._compute_current_logical_frame()
             self.seekbar.handler_block(self._seekbar_handler_id)
-            self.seekbar.set_value(linear)
+            self.seekbar.set_value(logical)
             self.seekbar.handler_unblock(self._seekbar_handler_id)
 
     def on_draw(self, drawing_area, cr, width, height, user_data=None):
@@ -731,32 +731,84 @@ class BootAnimationPreviewerApp(Adw.Application):
                 self.current_part_index = len(self.animation.parts) - 1
                 self.current_frame_index = len(self.animation.parts[-1]['frames']) - 1
 
-    def _part_frame_to_linear(self):
-        linear = 0
-        for i in range(self.current_part_index):
-            linear += len(self.animation.parts[i]['frames'])
-        linear += self.current_frame_index
-        return linear
+    def _compute_total_logical_frames(self):
+        total = 0
+        for part in self.animation.parts:
+            ec = part['count'] if part['count'] > 0 else self.infinite_part_loop_limit
+            total += ec * (len(part['frames']) + part['pause'])
+        return total
 
-    def _linear_to_part_frame(self, linear_index):
+    def _compute_current_logical_frame(self):
+        if not self.animation or not self.animation.parts:
+            return 0
+        if not self.playing:
+            last_idx = len(self.animation.parts) - 1
+            if self.current_part_index == last_idx and self.current_frame_index >= len(self.animation.parts[-1]['frames']) - 1:
+                return self._compute_total_logical_frames()
+        pos = 0
+        for i in range(self.current_part_index):
+            part = self.animation.parts[i]
+            ec = part['count'] if part['count'] > 0 else self.infinite_part_loop_limit
+            pos += ec * (len(part['frames']) + part['pause'])
+        part = self.animation.parts[self.current_part_index]
+        ec = part['count'] if part['count'] > 0 else self.infinite_part_loop_limit
+        pos += self.current_part_play_count * (len(part['frames']) + part['pause'])
+        if self.pause_remaining_frames > 0:
+            pos += len(part['frames']) + (part['pause'] - self.pause_remaining_frames)
+        else:
+            pos += self.current_frame_index
+        return pos
+
+    def _seek_to_logical_frame(self, logical_pos):
+        if not self.animation or not self.animation.parts:
+            return
+        total = self._compute_total_logical_frames()
+        logical_pos = max(0, min(total, logical_pos))
+        remaining = logical_pos
         for part_idx, part in enumerate(self.animation.parts):
-            n = len(part['frames'])
-            if linear_index < n:
-                return part_idx, linear_index
-            linear_index -= n
+            ec = part['count'] if part['count'] > 0 else self.infinite_part_loop_limit
+            play_span = len(part['frames']) + part['pause']
+            part_total = ec * play_span
+            if remaining < part_total:
+                play_count = remaining // play_span
+                within_play = remaining % play_span
+                if within_play < len(part['frames']):
+                    self.current_part_index = part_idx
+                    self.current_frame_index = within_play
+                    self.current_part_play_count = play_count
+                    self.pause_remaining_frames = 0
+                else:
+                    pause_elapsed = within_play - len(part['frames'])
+                    self.current_part_index = part_idx
+                    self.current_frame_index = len(part['frames']) - 1
+                    self.current_part_play_count = play_count
+                    self.pause_remaining_frames = part['pause'] - pause_elapsed
+                return
+            remaining -= part_total
         last_idx = len(self.animation.parts) - 1
-        last_frame = len(self.animation.parts[last_idx]['frames']) - 1
-        return last_idx, max(0, last_frame)
+        last_part = self.animation.parts[last_idx]
+        self.current_part_index = last_idx
+        self.current_frame_index = len(last_part['frames']) - 1
+        ec = last_part['count'] if last_part['count'] > 0 else self.infinite_part_loop_limit
+        self.current_part_play_count = max(0, ec - 1)
+        self.pause_remaining_frames = 0
+
+    def _seekbar_format_value(self, scale, value):
+        if not self.animation:
+            return "0.0s"
+        logical = int(value)
+        fps = self.animation.fps or 30
+        total = self._compute_total_logical_frames()
+        secs = logical / fps if fps > 0 else 0
+        total_secs = total / fps if fps > 0 else 0
+        return f"{secs:.1f}s / {total_secs:.1f}s"
 
     def on_seekbar_value_changed(self, scale):
         if not self.animation or not self.animation.parts:
             return
-        linear = int(scale.get_value())
-        part_idx, frame_idx = self._linear_to_part_frame(linear)
-        self.current_part_index = part_idx
-        self.current_frame_index = frame_idx
-        self.current_part_play_count = 0
-        self.pause_remaining_frames = 0
+        logical = int(scale.get_value())
+        self.stop_playback()
+        self._seek_to_logical_frame(logical)
         self.update_playback_status_labels()
         self.drawing_area.queue_draw()
 

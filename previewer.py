@@ -1041,63 +1041,40 @@ class BootAnimationPreviewerApp(Adw.Application):
             self._cleanup_export()
 
     def _export_gif(self, state):
+        import tempfile
+
         arrays = state['arrays']
         fps = state['fps']
         filepath = state['filepath']
 
-        orig_h, orig_w = arrays[0].shape[:2]
-        num_frames = len(arrays)
+        fd, tmp_mp4 = tempfile.mkstemp(suffix='.mp4')
+        os.close(fd)
 
-        MAX_DIM = 480
-        MAX_FRAMES = 150
-
-        step = max(1, (num_frames + MAX_FRAMES - 1) // MAX_FRAMES)
-        scale = min(1.0, MAX_DIM / max(orig_h, orig_w))
-
-        if scale < 1.0:
-            out_h = max(1, int(round(orig_h * scale)))
-            out_w = max(1, int(round(orig_w * scale)))
-        else:
-            out_h, out_w = orig_h, orig_w
-
-        out_fps = fps / step
-
-        cmd = [
-            'ffmpeg', '-y',
-            '-f', 'rawvideo',
-            '-vcodec', 'rawvideo',
-            '-s', f'{out_w}x{out_h}',
-            '-pix_fmt', 'rgb24',
-            '-r', str(out_fps),
-            '-i', '-',
-            '-filter_complex',
-            '[0:v]split[v1][v2];[v1]palettegen=max_colors=256:stats_mode=full[p];[v2][p]paletteuse=dither=bayer:bayer_scale=5',
-            '-loop', '0',
-            filepath
-        ]
-
-        need_resize = scale < 1.0
-        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
         try:
-            idx = 0
-            while arrays:
-                arr = arrays.pop(0)
-                if idx % step == 0:
-                    if need_resize:
-                        img = Image.fromarray(arr)
-                        data = numpy.array(img.resize((out_w, out_h), Image.LANCZOS))
-                    else:
-                        data = arr
-                    proc.stdin.write(data.tobytes())
-                idx += 1
-            proc.stdin.close()
-            proc.wait()
-            if proc.returncode != 0:
-                stderr = proc.stderr.read().decode()
-                raise RuntimeError(f"ffmpeg GIF encoding failed: {stderr}")
-        except Exception:
-            proc.kill()
-            raise
+            h, w = arrays[0].shape[:2]
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            out = cv2.VideoWriter(tmp_mp4, fourcc, fps, (w, h))
+            try:
+                while arrays:
+                    arr = arrays.pop(0)
+                    bgr = cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
+                    out.write(bgr)
+            finally:
+                out.release()
+
+            cmd = [
+                'ffmpeg', '-y',
+                '-i', tmp_mp4,
+                '-filter_complex',
+                '[0:v]split[v1][v2];[v1]palettegen=max_colors=256:stats_mode=full[p];[v2][p]paletteuse=dither=bayer:bayer_scale=5',
+                '-loop', '0',
+                filepath
+            ]
+            subprocess.run(cmd, check=True, capture_output=True)
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError(f"ffmpeg GIF conversion failed: {e.stderr.decode()}")
+        finally:
+            os.unlink(tmp_mp4)
 
     def _export_mp4(self, state):
         arrays = state['arrays']

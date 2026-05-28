@@ -286,21 +286,6 @@ class BootAnimationPreviewerApp(Adw.Application):
         custom_h_row.add_suffix(self.custom_h_spin)
         self.custom_dim_group.add(custom_h_row)
 
-        # Playback Limits Group
-        playback_group = Adw.PreferencesGroup(title="Playback Rules")
-        vbox.append(playback_group)
-
-        # Spin button to customize infinite loop parts repetitions
-        adj = Gtk.Adjustment.new(5.0, 1.0, 100.0, 1.0, 5.0, 0.0)
-        self.loop_limit_spin = Gtk.SpinButton(adjustment=adj, climb_rate=1.0, digits=0)
-        self.loop_limit_spin.set_valign(Gtk.Align.CENTER)
-        self.loop_limit_spin.connect("value-changed", self.on_loop_limit_changed)
-
-        loop_limit_row = Adw.ActionRow(title="Infinite Part Repetitions")
-        loop_limit_row.set_subtitle("Default loops for parts with 0 count")
-        loop_limit_row.add_suffix(self.loop_limit_spin)
-        playback_group.add(loop_limit_row)
-
         # Metadata / Info Group
         self.info_group = Adw.PreferencesGroup(title="Animation Metadata")
         vbox.append(self.info_group)
@@ -458,6 +443,14 @@ class BootAnimationPreviewerApp(Adw.Application):
         self.btn_status_info.set_tooltip_text("Toggle Player Status")
         self.btn_status_info.connect("toggled", self.on_status_info_toggled)
         control_bar.append(self.btn_status_info)
+
+        # Infinite part repetitions
+        adj = Gtk.Adjustment.new(5.0, 1.0, 100.0, 1.0, 5.0, 0.0)
+        self.loop_limit_spin = Gtk.SpinButton(adjustment=adj, climb_rate=1.0, digits=0)
+        self.loop_limit_spin.set_tooltip_text("Default loops for parts with 0 count")
+        self.loop_limit_spin.connect("value-changed", self.on_loop_limit_changed)
+        control_bar.append(Gtk.Label(label="Repetitions:"))
+        control_bar.append(self.loop_limit_spin)
 
     def load_animation(self, filepath):
         self.stop_playback()

@@ -860,6 +860,15 @@ class BootAnimationPreviewerApp(Adw.Application):
 
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
 
+        backdrop_click = Gtk.GestureClick()
+        backdrop_click.connect("pressed", lambda *a: dialog.close())
+        dialog.add_controller(backdrop_click)
+
+        outer_catch = Gtk.GestureClick()
+        outer_catch.set_propagation_phase(Gtk.PropagationPhase.BUBBLE)
+        outer_catch.connect("pressed", lambda *a: None)
+        outer.add_controller(outer_catch)
+
         # Header with title and close
         title_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         title_bar.set_margin_start(12)
@@ -869,7 +878,7 @@ class BootAnimationPreviewerApp(Adw.Application):
         title_lbl = Gtk.Label(label="Animation Info")
         title_lbl.set_hexpand(True)
         title_lbl.set_xalign(0)
-        title_lbl.add_css_class("title")
+        title_lbl.add_css_class("large-title")
         title_bar.append(title_lbl)
 
         close_btn = Gtk.Button(icon_name="window-close-symbolic")
@@ -879,6 +888,11 @@ class BootAnimationPreviewerApp(Adw.Application):
         title_bar.append(close_btn)
 
         outer.append(title_bar)
+
+        sep_title = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        sep_title.set_margin_top(8)
+        sep_title.set_margin_bottom(4)
+        outer.append(sep_title)
 
         # Content
         content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -925,12 +939,20 @@ class BootAnimationPreviewerApp(Adw.Application):
         btn_box.set_margin_start(16)
         btn_box.set_margin_end(16)
 
-        copy_btn = Gtk.Button(label="Copy Path")
+        copy_btn = Gtk.Button()
+        copy_content = Adw.ButtonContent()
+        copy_content.set_icon_name("edit-copy-symbolic")
+        copy_content.set_label("Copy Path")
+        copy_btn.set_child(copy_content)
         copy_btn.add_css_class("flat")
         copy_btn.connect("clicked", self._on_info_copy_clicked, filepath)
         btn_box.append(copy_btn)
 
-        open_btn = Gtk.Button(label="Show in Folder")
+        open_btn = Gtk.Button()
+        open_content = Adw.ButtonContent()
+        open_content.set_icon_name("folder-open-symbolic")
+        open_content.set_label("Show in Folder")
+        open_btn.set_child(open_content)
         open_btn.add_css_class("suggested-action")
         open_btn.connect("clicked", self._on_info_open_clicked, filepath)
         btn_box.append(open_btn)
@@ -946,20 +968,29 @@ class BootAnimationPreviewerApp(Adw.Application):
         self.toast_overlay.add_toast(toast)
 
     def _on_info_open_clicked(self, btn, filepath):
-        uri = "file://" + os.path.abspath(filepath)
+        filepath = os.path.abspath(filepath)
+        dir_path = os.path.dirname(filepath)
         try:
-            proxy = Gio.DBusProxy.new_for_bus_sync(
-                Gio.BusType.SESSION,
-                Gio.DBusProxyFlags.NONE,
-                None,
-                'org.freedesktop.FileManager1',
-                '/org/freedesktop/FileManager1',
-                'org.freedesktop.FileManager1',
-                None
+            result = subprocess.run(
+                ["xdg-mime", "query", "default", "inode/directory"],
+                capture_output=True, text=True, check=True
             )
-            proxy.ShowItems('(ass)', [uri], '')
+            fm_name = result.stdout.strip().replace(".desktop", "").lower()
+            select_cmds = {
+                "dolphin": ["dolphin", "--select", filepath],
+                "nautilus": ["nautilus", "--select", filepath],
+                "nemo": ["nemo", "--select", filepath],
+                "thunar": ["thunar", dir_path],
+                "pcmanfm": ["pcmanfm", dir_path],
+                "caja": ["caja", dir_path],
+            }
+            cmd = select_cmds.get(fm_name)
+            if cmd:
+                subprocess.Popen(cmd)
+            else:
+                subprocess.Popen(["xdg-open", dir_path])
         except Exception:
-            subprocess.Popen(["xdg-open", os.path.dirname(filepath)])
+            subprocess.Popen(["xdg-open", dir_path])
 
     def on_speed_changed(self, combo, pspec):
         selected = combo.get_selected()

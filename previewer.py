@@ -343,9 +343,9 @@ class BootAnimationPreviewerApp(Adw.Application):
         self.status_info_bar.set_halign(Gtk.Align.CENTER)
         self.status_info_bar.set_margin_bottom(6)
         self.status_info_bar.set_visible(False)
-        self.lbl_status_part = Gtk.Label(label="-")
-        self.lbl_status_frame = Gtk.Label(label="-")
-        self.lbl_status_position = Gtk.Label(label="-")
+        self.lbl_status_part = Gtk.Label(label="Open a file to start")
+        self.lbl_status_frame = Gtk.Label(label="")
+        self.lbl_status_position = Gtk.Label(label="")
         self.status_info_bar.append(self.lbl_status_part)
         self.status_info_bar.append(self.lbl_status_frame)
         self.status_info_bar.append(self.lbl_status_position)
@@ -414,7 +414,6 @@ class BootAnimationPreviewerApp(Adw.Application):
         self.btn_status_info = Gtk.ToggleButton(icon_name="dialog-information-symbolic")
         self.btn_status_info.add_css_class("circular")
         self.btn_status_info.set_active(False)
-        self.btn_status_info.set_sensitive(False)
         self.btn_status_info.set_tooltip_text("Toggle Player Status")
         self.btn_status_info.connect("toggled", self.on_status_info_toggled)
         control_bar.append(self.btn_status_info)
@@ -461,7 +460,6 @@ class BootAnimationPreviewerApp(Adw.Application):
         self.update_playback_status_labels()
         self.drawing_area.queue_draw()
 
-        self.btn_status_info.set_sensitive(True)
         self.btn_file_info.set_sensitive(True)
 
         total = self._compute_total_logical_frames()

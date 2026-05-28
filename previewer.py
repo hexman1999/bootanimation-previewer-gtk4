@@ -2,7 +2,6 @@
 import os
 import re
 import shutil
-import subprocess
 import sys
 import zipfile
 import cairo
@@ -14,6 +13,7 @@ gi.require_version('GdkPixbuf', '2.0')
 from gi.repository import GLib, Gio, Gtk, Gdk, GdkPixbuf, Adw
 from PIL import Image
 import cv2
+import imageio.v2 as iio2
 import numpy
 
 # Initialize Libadwaita
@@ -902,21 +902,16 @@ class BootAnimationPreviewerApp(Adw.Application):
         }
 
         if ext == '.gif':
-            cmd = [
-                'ffmpeg', '-y',
-                '-f', 'rawvideo',
-                '-vcodec', 'rawvideo',
-                '-s', f'{dev_w}x{dev_h}',
-                '-pix_fmt', 'rgb24',
-                '-r', str(fps),
-                '-i', '-',
-                '-filter_complex',
-                '[0:v]split[v1][v2];[v1]palettegen=max_colors=256:stats_mode=full[p];[v2][p]paletteuse=dither=bayer:bayer_scale=5',
-                '-loop', '0',
-                filepath
-            ]
-            proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
-            state['ffmpeg_proc'] = proc
+            duration = round(1000 / fps)
+            writer = iio2.get_writer(
+                filepath, mode='I',
+                loop=0,
+                duration=duration,
+                palettesize=256,
+                quantizer='wu',
+                subrectangles=True,
+            )
+            state['gif_writer'] = writer
         else:
             import tempfile
             fd, tmp_mp4 = tempfile.mkstemp(suffix='.mp4')
@@ -1007,8 +1002,8 @@ class BootAnimationPreviewerApp(Adw.Application):
                 surface = self.render_frame_to_surface(part_idx, frame_idx, state['dev_w'], state['dev_h'])
                 rgb_array = self.surface_to_numpy_rgb(surface)
 
-                if 'ffmpeg_proc' in state:
-                    state['ffmpeg_proc'].stdin.write(rgb_array.tobytes())
+                if 'gif_writer' in state:
+                    state['gif_writer'].append_data(rgb_array)
                 else:
                     bgr = cv2.cvtColor(rgb_array, cv2.COLOR_RGB2BGR)
                     state['writer'].write(bgr)
@@ -1028,8 +1023,8 @@ class BootAnimationPreviewerApp(Adw.Application):
 
     def _abort_export_writer(self):
         state = self._export_state
-        if 'ffmpeg_proc' in state:
-            state['ffmpeg_proc'].kill()
+        if 'gif_writer' in state:
+            state['gif_writer'].close()
         elif 'writer' in state:
             state['writer'].release()
 
@@ -1061,12 +1056,7 @@ class BootAnimationPreviewerApp(Adw.Application):
 
         try:
             if ext == '.gif':
-                proc = state['ffmpeg_proc']
-                proc.stdin.close()
-                proc.wait()
-                if proc.returncode != 0:
-                    stderr = proc.stderr.read().decode()
-                    raise RuntimeError(f"ffmpeg GIF encoding failed: {stderr}")
+                state['gif_writer'].close()
             elif ext == '.mp4':
                 state['writer'].release()
                 shutil.move(state['tmp_mp4'], state['filepath'])

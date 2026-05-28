@@ -261,30 +261,11 @@ class BootAnimationPreviewerApp(Adw.Application):
         vbox.set_margin_bottom(16)
         scrolled.set_child(vbox)
 
-        # Custom Dimensions Group (Visible only when "Custom Dimensions" preset is selected)
-        self.custom_dim_group = Adw.PreferencesGroup(title="Custom Viewport Dimensions")
-        self.custom_dim_group.set_visible(False)
-        vbox.append(self.custom_dim_group)
-
-        # Custom Width
+        # Custom Dimensions spin buttons (hidden, used as data source for the popup)
         adj_w = Gtk.Adjustment.new(1080.0, 100.0, 8000.0, 10.0, 100.0, 0.0)
         self.custom_w_spin = Gtk.SpinButton(adjustment=adj_w, climb_rate=10.0, digits=0)
-        self.custom_w_spin.set_valign(Gtk.Align.CENTER)
-        self.custom_w_spin.connect("value-changed", self.on_custom_dim_changed)
-        
-        custom_w_row = Adw.ActionRow(title="Width (px)")
-        custom_w_row.add_suffix(self.custom_w_spin)
-        self.custom_dim_group.add(custom_w_row)
-
-        # Custom Height
         adj_h = Gtk.Adjustment.new(2400.0, 100.0, 8000.0, 10.0, 100.0, 0.0)
         self.custom_h_spin = Gtk.SpinButton(adjustment=adj_h, climb_rate=10.0, digits=0)
-        self.custom_h_spin.set_valign(Gtk.Align.CENTER)
-        self.custom_h_spin.connect("value-changed", self.on_custom_dim_changed)
-        
-        custom_h_row = Adw.ActionRow(title="Height (px)")
-        custom_h_row.add_suffix(self.custom_h_spin)
-        self.custom_dim_group.add(custom_h_row)
 
         # Metadata / Info Group
         self.info_group = Adw.PreferencesGroup(title="Animation Metadata")
@@ -320,7 +301,7 @@ class BootAnimationPreviewerApp(Adw.Application):
         # Device Dimensions Selector in the title bar
         self.preset_combo = Gtk.DropDown.new_from_strings([p["name"] for p in DEVICE_PRESETS])
         self.preset_combo.set_selected(self.selected_preset_index)
-        self.preset_combo.connect("notify::selected", self.on_preset_changed)
+        self._preset_handler_id = self.preset_combo.connect("notify::selected", self.on_preset_changed)
         self.preset_combo.set_tooltip_text("Select Device Frame Preset")
         content_header.pack_start(self.preset_combo)
 
@@ -896,12 +877,57 @@ class BootAnimationPreviewerApp(Adw.Application):
                 self.start_playback()
 
     def on_preset_changed(self, combo, pspec):
+        preset = DEVICE_PRESETS[combo.get_selected()]
+
+        if preset["name"] == "Custom Dimensions":
+            self._show_custom_dimensions_dialog(combo)
+            return
+
         self.selected_preset_index = combo.get_selected()
-        preset = DEVICE_PRESETS[self.selected_preset_index]
-        
-        is_custom = (preset["name"] == "Custom Dimensions")
-        self.custom_dim_group.set_visible(is_custom)
         self.drawing_area.queue_draw()
+
+    def _show_custom_dimensions_dialog(self, combo):
+        dialog = Adw.AlertDialog(heading="Custom Viewport Dimensions", body="Set preview viewport width and height.")
+
+        adj_w = Gtk.Adjustment.new(self.custom_w_spin.get_value(), 100.0, 8000.0, 10.0, 100.0, 0.0)
+        w_spin = Gtk.SpinButton(adjustment=adj_w, climb_rate=10.0, digits=0)
+        adj_h = Gtk.Adjustment.new(self.custom_h_spin.get_value(), 100.0, 8000.0, 10.0, 100.0, 0.0)
+        h_spin = Gtk.SpinButton(adjustment=adj_h, climb_rate=10.0, digits=0)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        box.set_margin_top(12)
+        box.set_margin_bottom(12)
+        box.set_margin_start(12)
+        box.set_margin_end(12)
+
+        w_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        w_row.append(Gtk.Label(label="Width (px):"))
+        w_row.append(w_spin)
+        box.append(w_row)
+
+        h_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        h_row.append(Gtk.Label(label="Height (px):"))
+        h_row.append(h_spin)
+        box.append(h_row)
+
+        dialog.set_extra_child(box)
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("apply", "Apply")
+        dialog.set_default_response("apply")
+        dialog.set_response_appearance("apply", Adw.ResponseAppearance.SUGGESTED)
+        dialog.connect("response", self._on_custom_dim_dialog_response, combo, w_spin, h_spin)
+        dialog.present(self.window)
+
+    def _on_custom_dim_dialog_response(self, dialog, response, combo, w_spin, h_spin):
+        if response == "apply":
+            self.custom_w_spin.set_value(w_spin.get_value())
+            self.custom_h_spin.set_value(h_spin.get_value())
+            self.selected_preset_index = combo.get_selected()
+            self.drawing_area.queue_draw()
+        else:
+            combo.handler_block(self._preset_handler_id)
+            combo.set_selected(self.selected_preset_index)
+            combo.handler_unblock(self._preset_handler_id)
 
     def on_custom_dim_changed(self, spin):
         self.drawing_area.queue_draw()

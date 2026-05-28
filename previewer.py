@@ -317,15 +317,6 @@ class BootAnimationPreviewerApp(Adw.Application):
         self.info_group.add(self.row_parts)
         self.info_group.add(self.row_frames)
 
-        # Player State Group
-        state_group = Adw.PreferencesGroup(title="Live Player Status")
-        vbox.append(state_group)
-
-        self.row_current_part = Adw.ActionRow(title="Current Part", subtitle="-")
-        self.row_current_frame = Adw.ActionRow(title="Current Frame", subtitle="-")
-        state_group.add(self.row_current_part)
-        state_group.add(self.row_current_frame)
-
     def build_content_area(self):
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.split_view.set_content(main_box)
@@ -405,6 +396,17 @@ class BootAnimationPreviewerApp(Adw.Application):
         seekbar_box.append(self.seekbar_label)
         control_bar_wrapper.append(seekbar_box)
 
+        # Player status info bar
+        self.status_info_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=24)
+        self.status_info_bar.set_halign(Gtk.Align.CENTER)
+        self.status_info_bar.set_margin_bottom(6)
+        self.status_info_bar.set_visible(False)
+        self.lbl_status_part = Gtk.Label(label="-")
+        self.lbl_status_frame = Gtk.Label(label="-")
+        self.status_info_bar.append(self.lbl_status_part)
+        self.status_info_bar.append(self.lbl_status_frame)
+        control_bar_wrapper.append(self.status_info_bar)
+
         control_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         control_bar.set_halign(Gtk.Align.CENTER)
         control_bar.set_margin_start(20)
@@ -448,6 +450,14 @@ class BootAnimationPreviewerApp(Adw.Application):
         self.speed_combo.set_selected(1)
         self.speed_combo.connect("notify::selected", self.on_speed_changed)
         control_bar.append(self.speed_combo)
+
+        # Player status info toggle
+        self.btn_status_info = Gtk.ToggleButton(icon_name="dialog-information-symbolic")
+        self.btn_status_info.add_css_class("circular")
+        self.btn_status_info.set_active(False)
+        self.btn_status_info.set_tooltip_text("Toggle Player Status")
+        self.btn_status_info.connect("toggled", self.on_status_info_toggled)
+        control_bar.append(self.btn_status_info)
 
     def load_animation(self, filepath):
         self.stop_playback()
@@ -503,14 +513,14 @@ class BootAnimationPreviewerApp(Adw.Application):
 
     def update_playback_status_labels(self):
         if not self.animation or self.current_part_index >= len(self.animation.parts):
-            self.row_current_part.set_subtitle("-")
-            self.row_current_frame.set_subtitle("-")
+            self.lbl_status_part.set_text("-")
+            self.lbl_status_frame.set_text("-")
             return
 
         part = self.animation.parts[self.current_part_index]
         effective_count = part['count'] if part['count'] > 0 else self.infinite_part_loop_limit
-        self.row_current_part.set_subtitle(f"{part['path']} (Play {self.current_part_play_count + 1}/{effective_count})")
-        self.row_current_frame.set_subtitle(f"{self.current_frame_index + 1} / {len(part['frames'])}")
+        self.lbl_status_part.set_text(f"Part: {part['path']} (Play {self.current_part_play_count + 1}/{effective_count})")
+        self.lbl_status_frame.set_text(f"Frame: {self.current_frame_index + 1} / {len(part['frames'])}")
 
         total = self._compute_total_logical_frames()
         if total > 0:
@@ -870,6 +880,9 @@ class BootAnimationPreviewerApp(Adw.Application):
 
     def on_loop_toggled(self, btn):
         self.loop_entire = btn.get_active()
+
+    def on_status_info_toggled(self, btn):
+        self.status_info_bar.set_visible(btn.get_active())
 
     def on_speed_changed(self, combo, pspec):
         selected = combo.get_selected()

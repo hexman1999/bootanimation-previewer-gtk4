@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import os
 import re
+import subprocess
 import sys
 import zipfile
 import cairo
@@ -822,9 +823,9 @@ class BootAnimationPreviewerApp(Adw.Application):
     def surface_to_numpy_rgb(self, surface):
         data = surface.get_data()
         arr = numpy.frombuffer(data, dtype=numpy.uint8).reshape((surface.get_height(), surface.get_width(), 4))
-        r = arr[:, :, 2]
-        g = arr[:, :, 1]
-        b = arr[:, :, 0]
+        r = arr[:, :, 2].copy()
+        g = arr[:, :, 1].copy()
+        b = arr[:, :, 0].copy()
         return numpy.stack([r, g, b], axis=2)
 
     def on_export_clicked(self, btn):
@@ -993,17 +994,17 @@ class BootAnimationPreviewerApp(Adw.Application):
 
     def _finish_export(self, encode=False, error=None, cancelled=False):
         if cancelled:
-            self._export_state['arrays'].clear()
-            self._export_state['arrays'] = []
             if self._export_dialog:
                 self._export_dialog.close()
             self.show_error_dialog("Export Cancelled", "Export was cancelled.")
+            self._cleanup_export()
             return
 
         if error:
             if self._export_dialog:
                 self._export_dialog.close()
             self.show_error_dialog("Export Failed", error)
+            self._cleanup_export()
             return
 
         if encode:
@@ -1013,6 +1014,7 @@ class BootAnimationPreviewerApp(Adw.Application):
         state = self._export_state
         ext = state['ext']
         arrays = state['arrays']
+        frame_count = len(arrays)
 
         if self._export_dialog:
             self._export_dialog.set_body("Encoding video...")
@@ -1029,32 +1031,92 @@ class BootAnimationPreviewerApp(Adw.Application):
                 self._export_dialog.close()
             self.show_success_dialog(
                 "Export Complete",
-                f"Exported {len(arrays)} frames to {os.path.basename(state['filepath'])}"
+                f"Exported {frame_count} frames to {os.path.basename(state['filepath'])}"
             )
         except Exception as e:
             if self._export_dialog:
                 self._export_dialog.close()
             self.show_error_dialog("Export Failed", str(e))
+        finally:
+            self._cleanup_export()
 
     def _export_gif(self, state):
-        duration = max(1, int(1000 / state['fps']))
-        images = [Image.fromarray(arr) for arr in state['arrays']]
-        images[0].save(
-            state['filepath'],
-            save_all=True,
-            append_images=images[1:],
-            duration=duration,
-            loop=0
-        )
+        arrays = state['arrays']
+        fps = state['fps']
+        filepath = state['filepath']
+
+        orig_h, orig_w = arrays[0].shape[:2]
+        num_frames = len(arrays)
+
+        MAX_DIM = 480
+        MAX_FRAMES = 150
+
+        step = max(1, (num_frames + MAX_FRAMES - 1) // MAX_FRAMES)
+        scale = min(1.0, MAX_DIM / max(orig_h, orig_w))
+
+        if scale < 1.0:
+            out_h = max(1, int(round(orig_h * scale)))
+            out_w = max(1, int(round(orig_w * scale)))
+        else:
+            out_h, out_w = orig_h, orig_w
+
+        out_fps = fps / step
+
+        cmd = [
+            'ffmpeg', '-y',
+            '-f', 'rawvideo',
+            '-vcodec', 'rawvideo',
+            '-s', f'{out_w}x{out_h}',
+            '-pix_fmt', 'rgb24',
+            '-r', str(out_fps),
+            '-i', '-',
+            '-filter_complex',
+            '[0:v]split[v1][v2];[v1]palettegen=max_colors=256:stats_mode=full[p];[v2][p]paletteuse=dither=bayer:bayer_scale=5',
+            '-loop', '0',
+            filepath
+        ]
+
+        need_resize = scale < 1.0
+        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+        try:
+            idx = 0
+            while arrays:
+                arr = arrays.pop(0)
+                if idx % step == 0:
+                    if need_resize:
+                        img = Image.fromarray(arr)
+                        data = numpy.array(img.resize((out_w, out_h), Image.LANCZOS))
+                    else:
+                        data = arr
+                    proc.stdin.write(data.tobytes())
+                idx += 1
+            proc.stdin.close()
+            proc.wait()
+            if proc.returncode != 0:
+                stderr = proc.stderr.read().decode()
+                raise RuntimeError(f"ffmpeg GIF encoding failed: {stderr}")
+        except Exception:
+            proc.kill()
+            raise
 
     def _export_mp4(self, state):
-        h, w = state['arrays'][0].shape[:2]
+        arrays = state['arrays']
+        h, w = arrays[0].shape[:2]
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         out = cv2.VideoWriter(state['filepath'], fourcc, state['fps'], (w, h))
-        for arr in state['arrays']:
+        while arrays:
+            arr = arrays.pop(0)
             bgr = cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
             out.write(bgr)
         out.release()
+
+    def _cleanup_export(self):
+        if hasattr(self, '_export_state') and self._export_state:
+            self._export_state['arrays'].clear()
+            self._export_state['arrays'] = []
+            self._export_state = {}
+        if hasattr(self, '_export_dialog'):
+            self._export_dialog = None
 
     def show_success_dialog(self, title, message):
         dialog = Adw.AlertDialog(heading=title, body=message)

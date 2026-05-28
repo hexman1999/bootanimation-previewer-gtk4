@@ -212,6 +212,8 @@ class BootAnimationPreviewerApp(Adw.Application):
         
         self.workspace_dir = "/home/muhammad/Desktop/bootanimation previewer antigravity"
 
+        self._custom_preset_index = next(i for i, p in enumerate(DEVICE_PRESETS) if p["name"] == "Custom Dimensions")
+
         # Custom Dimensions spin buttons (hidden, used as data source for the popup)
         adj_w = Gtk.Adjustment.new(1080.0, 100.0, 8000.0, 10.0, 100.0, 0.0)
         self.custom_w_spin = Gtk.SpinButton(adjustment=adj_w, climb_rate=10.0, digits=0)
@@ -249,6 +251,7 @@ class BootAnimationPreviewerApp(Adw.Application):
         self._preset_handler_id = self.preset_combo.connect("notify::selected", self.on_preset_changed)
         self.preset_combo.set_tooltip_text("Select Device Frame Preset")
         content_header.pack_start(self.preset_combo)
+        self._update_custom_preset_label()
 
         self.btn_custom_dims = Gtk.Button(icon_name="document-edit-symbolic")
         self.btn_custom_dims.set_visible(False)
@@ -889,6 +892,12 @@ class BootAnimationPreviewerApp(Adw.Application):
     def _on_custom_edit_clicked(self, btn):
         self._show_custom_dimensions_dialog()
 
+    def _update_custom_preset_label(self):
+        model = self.preset_combo.get_model()
+        w = int(self.custom_w_spin.get_value())
+        h = int(self.custom_h_spin.get_value())
+        model.splice(self._custom_preset_index, 1, [f"Custom Dimensions ({w}\u00d7{h})"])
+
     def _show_custom_dimensions_dialog(self):
         cur_w = int(self.custom_w_spin.get_value())
         cur_h = int(self.custom_h_spin.get_value())
@@ -928,6 +937,7 @@ class BootAnimationPreviewerApp(Adw.Application):
             self.custom_w_spin.set_value(w_spin.get_value())
             self.custom_h_spin.set_value(h_spin.get_value())
             self.selected_preset_index = self.preset_combo.get_selected()
+            self._update_custom_preset_label()
             self.drawing_area.queue_draw()
         else:
             self.preset_combo.handler_block(self._preset_handler_id)

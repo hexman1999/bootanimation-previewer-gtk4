@@ -860,7 +860,7 @@ class BootAnimationPreviewerApp(Adw.Application):
 
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
 
-        # Custom title bar with close button
+        # Header with title and close
         title_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         title_bar.set_margin_start(12)
         title_bar.set_margin_end(12)
@@ -869,7 +869,7 @@ class BootAnimationPreviewerApp(Adw.Application):
         title_lbl = Gtk.Label(label="Animation Info")
         title_lbl.set_hexpand(True)
         title_lbl.set_xalign(0)
-        title_lbl.add_css_class("heading")
+        title_lbl.add_css_class("title")
         title_bar.append(title_lbl)
 
         close_btn = Gtk.Button(icon_name="window-close-symbolic")
@@ -880,40 +880,62 @@ class BootAnimationPreviewerApp(Adw.Application):
 
         outer.append(title_bar)
 
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        box.set_size_request(460, -1)
-        box.set_margin_start(24)
-        box.set_margin_end(24)
-        box.set_margin_top(12)
-        box.set_margin_bottom(12)
+        # Content
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        content.set_size_request(480, -1)
+        content.set_margin_start(16)
+        content.set_margin_end(16)
+        content.set_margin_top(8)
+        content.set_margin_bottom(12)
+        content.add_css_class("card")
 
-        for label, value in fields:
-            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-            lbl = Gtk.Label(label=f"{label}:")
+        for i, (label, value) in enumerate(fields):
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+            row.set_margin_start(12)
+            row.set_margin_end(12)
+            row.set_margin_top(8)
+            row.set_margin_bottom(8)
+
+            lbl = Gtk.Label(label=label)
             lbl.set_xalign(0)
             lbl.set_width_chars(10)
+            lbl.add_css_class("dim-label")
             val = Gtk.Label(label=value)
             val.set_xalign(0)
             val.set_hexpand(True)
             val.set_ellipsize(Pango.EllipsizeMode.END)
             row.append(lbl)
             row.append(val)
-            box.append(row)
 
+            content.append(row)
+
+            if i < len(fields) - 1:
+                sep = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+                sep.set_margin_start(12)
+                sep.set_margin_end(12)
+                content.append(sep)
+
+        outer.append(content)
+
+        # Action buttons
         btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        btn_box.set_halign(Gtk.Align.CENTER)
-        btn_box.set_margin_top(8)
+        btn_box.set_halign(Gtk.Align.END)
+        btn_box.set_margin_top(12)
+        btn_box.set_margin_bottom(12)
+        btn_box.set_margin_start(16)
+        btn_box.set_margin_end(16)
 
         copy_btn = Gtk.Button(label="Copy Path")
+        copy_btn.add_css_class("flat")
         copy_btn.connect("clicked", self._on_info_copy_clicked, filepath)
         btn_box.append(copy_btn)
 
         open_btn = Gtk.Button(label="Show in Folder")
+        open_btn.add_css_class("suggested-action")
         open_btn.connect("clicked", self._on_info_open_clicked, filepath)
         btn_box.append(open_btn)
 
-        box.append(btn_box)
-        outer.append(box)
+        outer.append(btn_box)
         dialog.set_child(outer)
         dialog.present(self.window)
 

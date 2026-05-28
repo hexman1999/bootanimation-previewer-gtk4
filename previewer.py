@@ -399,7 +399,7 @@ class BootAnimationPreviewerApp(Adw.Application):
         self.seekbar.set_sensitive(False)
         self._seekbar_handler_id = self.seekbar.connect("value-changed", self.on_seekbar_value_changed)
         seekbar_box.append(self.seekbar)
-        self.seekbar_label = Gtk.Label(label="0.0s / 0.0s")
+        self.seekbar_label = Gtk.Label(label="0:00/0:00")
         self.seekbar_label.set_width_chars(14)
         seekbar_box.append(self.seekbar_label)
         control_bar_wrapper.append(seekbar_box)
@@ -518,9 +518,9 @@ class BootAnimationPreviewerApp(Adw.Application):
             self.seekbar.set_value(logical)
             self.seekbar.handler_unblock(self._seekbar_handler_id)
             fps = self.animation.fps or 30
-            secs = logical / fps if fps > 0 else 0
-            total_secs = total / fps if fps > 0 else 0
-            self.seekbar_label.set_text(f"{secs:.1f}s / {total_secs:.1f}s")
+            cur = int(logical / fps) if fps > 0 else 0
+            tot = int(total / fps) if fps > 0 else 0
+            self.seekbar_label.set_text(f"{cur//60}:{cur%60:02d}/{tot//60}:{tot%60:02d}")
 
     def on_draw(self, drawing_area, cr, width, height, user_data=None):
         cr.set_source_rgb(0.08, 0.08, 0.08)
@@ -892,6 +892,8 @@ class BootAnimationPreviewerApp(Adw.Application):
 
     def on_loop_limit_changed(self, spin):
         self.infinite_part_loop_limit = int(spin.get_value())
+        total = self._compute_total_logical_frames() if self.animation else 0
+        self.seekbar.set_range(0, max(0, total))
         self.update_playback_status_labels()
 
     def on_open_file(self, btn):

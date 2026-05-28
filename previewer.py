@@ -2,6 +2,7 @@
 import os
 import re
 import shutil
+import subprocess
 import sys
 import zipfile
 import cairo
@@ -13,7 +14,6 @@ gi.require_version('GdkPixbuf', '2.0')
 from gi.repository import GLib, Gio, Gtk, Gdk, GdkPixbuf, Adw
 from PIL import Image
 import cv2
-import imageio.v2 as iio2
 import numpy
 
 # Initialize Libadwaita
@@ -902,16 +902,9 @@ class BootAnimationPreviewerApp(Adw.Application):
         }
 
         if ext == '.gif':
-            duration = round(1000 / fps)
-            writer = iio2.get_writer(
-                filepath, mode='I',
-                loop=0,
-                duration=duration,
-                palettesize=256,
-                quantizer='wu',
-                subrectangles=True,
-            )
-            state['gif_writer'] = writer
+            import tempfile
+            tmpdir = tempfile.mkdtemp()
+            state['tmpdir'] = tmpdir
         else:
             import tempfile
             fd, tmp_mp4 = tempfile.mkstemp(suffix='.mp4')
@@ -1002,8 +995,9 @@ class BootAnimationPreviewerApp(Adw.Application):
                 surface = self.render_frame_to_surface(part_idx, frame_idx, state['dev_w'], state['dev_h'])
                 rgb_array = self.surface_to_numpy_rgb(surface)
 
-                if 'gif_writer' in state:
-                    state['gif_writer'].append_data(rgb_array)
+                if 'tmpdir' in state:
+                    png_path = os.path.join(state['tmpdir'], f'f{state["idx"]:06d}.png')
+                    Image.fromarray(rgb_array).save(png_path, compress_level=1)
                 else:
                     bgr = cv2.cvtColor(rgb_array, cv2.COLOR_RGB2BGR)
                     state['writer'].write(bgr)
@@ -1023,9 +1017,7 @@ class BootAnimationPreviewerApp(Adw.Application):
 
     def _abort_export_writer(self):
         state = self._export_state
-        if 'gif_writer' in state:
-            state['gif_writer'].close()
-        elif 'writer' in state:
+        if 'writer' in state:
             state['writer'].release()
 
     def _finish_export(self, encode=False, error=None, cancelled=False):
@@ -1056,7 +1048,22 @@ class BootAnimationPreviewerApp(Adw.Application):
 
         try:
             if ext == '.gif':
-                state['gif_writer'].close()
+                tmpdir = state['tmpdir']
+                palette_path = os.path.join(tmpdir, 'palette.png')
+                subprocess.run([
+                    'ffmpeg', '-y',
+                    '-pattern_type', 'glob', '-i', os.path.join(tmpdir, '*.png'),
+                    '-vf', 'palettegen=max_colors=256:stats_mode=diff',
+                    palette_path
+                ], check=True, capture_output=True)
+                subprocess.run([
+                    'ffmpeg', '-y',
+                    '-pattern_type', 'glob', '-i', os.path.join(tmpdir, '*.png'),
+                    '-i', palette_path,
+                    '-lavfi', 'paletteuse=dither=bayer:bayer_scale=5',
+                    '-loop', '0',
+                    state['filepath']
+                ], check=True, capture_output=True)
             elif ext == '.mp4':
                 state['writer'].release()
                 shutil.move(state['tmp_mp4'], state['filepath'])
@@ -1078,7 +1085,9 @@ class BootAnimationPreviewerApp(Adw.Application):
 
     def _cleanup_export(self):
         if hasattr(self, '_export_state') and self._export_state:
-            if 'tmp_mp4' in self._export_state:
+            if 'tmpdir' in self._export_state:
+                shutil.rmtree(self._export_state['tmpdir'], ignore_errors=True)
+            elif 'tmp_mp4' in self._export_state:
                 tmp = self._export_state['tmp_mp4']
                 if os.path.exists(tmp):
                     os.unlink(tmp)

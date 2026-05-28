@@ -12,7 +12,8 @@ gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 gi.require_version('Gdk', '4.0')
 gi.require_version('GdkPixbuf', '2.0')
-from gi.repository import GLib, Gio, Gtk, Gdk, GdkPixbuf, Adw
+gi.require_version('Pango', '1.0')
+from gi.repository import GLib, Gio, Gtk, Gdk, GdkPixbuf, Adw, Pango
 import cv2
 import numpy
 
@@ -234,12 +235,13 @@ class BootAnimationPreviewerApp(Adw.Application):
         self.window = Adw.ApplicationWindow(application=self, title="Boot Animation Previewer")
         self.window.set_default_size(1080, 750)
         self.window.set_icon_name("phone")
-        self.build_content_area()
+        self.toast_overlay = Adw.ToastOverlay()
+        self.toast_overlay.set_child(self.build_content_area())
+        self.window.set_content(self.toast_overlay)
         self.window.present()
 
     def build_content_area(self):
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        self.window.set_content(main_box)
 
         # Main HeaderBar
         content_header = Adw.HeaderBar()
@@ -404,6 +406,8 @@ class BootAnimationPreviewerApp(Adw.Application):
         self.loop_limit_spin.connect("value-changed", self.on_loop_limit_changed)
         control_bar.append(Gtk.Label(label="Repetitions:"))
         control_bar.append(self.loop_limit_spin)
+
+        return main_box
 
     def load_animation(self, filepath):
         self.stop_playback()
@@ -840,37 +844,100 @@ class BootAnimationPreviewerApp(Adw.Application):
     def on_file_info_clicked(self, btn):
         if not self.animation:
             return
-        dialog = Adw.AlertDialog(heading="Animation Info")
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        box.set_size_request(400, -1)
-        box.set_margin_top(8)
-        box.set_margin_bottom(8)
+
+        filepath = self.animation.filepath
         fields = [
             ("File Name", self._meta_filename),
-            ("File Path", self.animation.filepath),
+            ("File Path", filepath),
             ("Resolution", self._meta_resolution),
             ("Frame Rate", self._meta_fps),
             ("Parts", self._meta_parts),
             ("Frames", self._meta_frames),
         ]
+
+        dialog = Adw.Dialog()
+        dialog.set_can_close(True)
+
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+
+        # Custom title bar with close button
+        title_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        title_bar.set_margin_start(12)
+        title_bar.set_margin_end(12)
+        title_bar.set_margin_top(12)
+
+        title_lbl = Gtk.Label(label="Animation Info")
+        title_lbl.set_hexpand(True)
+        title_lbl.set_xalign(0)
+        title_lbl.add_css_class("heading")
+        title_bar.append(title_lbl)
+
+        close_btn = Gtk.Button(icon_name="window-close-symbolic")
+        close_btn.add_css_class("circular")
+        close_btn.set_valign(Gtk.Align.CENTER)
+        close_btn.connect("clicked", lambda b: dialog.close())
+        title_bar.append(close_btn)
+
+        outer.append(title_bar)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        box.set_size_request(460, -1)
+        box.set_margin_start(24)
+        box.set_margin_end(24)
+        box.set_margin_top(12)
+        box.set_margin_bottom(12)
+
         for label, value in fields:
-            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
             lbl = Gtk.Label(label=f"{label}:")
             lbl.set_xalign(0)
-            lbl.set_width_chars(12)
-            val = Gtk.Entry()
-            val.set_text(value)
-            val.set_editable(False)
-            val.set_can_target(True)
+            lbl.set_width_chars(10)
+            val = Gtk.Label(label=value)
+            val.set_xalign(0)
             val.set_hexpand(True)
-            val.add_css_class("monospace")
+            val.set_ellipsize(Pango.EllipsizeMode.END)
             row.append(lbl)
             row.append(val)
             box.append(row)
-        dialog.set_extra_child(box)
-        dialog.add_response("ok", "OK")
-        dialog.set_default_response("ok")
+
+        btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        btn_box.set_halign(Gtk.Align.CENTER)
+        btn_box.set_margin_top(8)
+
+        copy_btn = Gtk.Button(label="Copy Path")
+        copy_btn.connect("clicked", self._on_info_copy_clicked, filepath)
+        btn_box.append(copy_btn)
+
+        open_btn = Gtk.Button(label="Show in Folder")
+        open_btn.connect("clicked", self._on_info_open_clicked, filepath)
+        btn_box.append(open_btn)
+
+        box.append(btn_box)
+        outer.append(box)
+        dialog.set_child(outer)
         dialog.present(self.window)
+
+    def _on_info_copy_clicked(self, btn, filepath):
+        clipboard = Gdk.Display.get_default().get_clipboard()
+        clipboard.set(filepath)
+        toast = Adw.Toast(title="Path copied to clipboard")
+        self.toast_overlay.add_toast(toast)
+
+    def _on_info_open_clicked(self, btn, filepath):
+        uri = "file://" + os.path.abspath(filepath)
+        try:
+            proxy = Gio.DBusProxy.new_for_bus_sync(
+                Gio.BusType.SESSION,
+                Gio.DBusProxyFlags.NONE,
+                None,
+                'org.freedesktop.FileManager1',
+                '/org/freedesktop/FileManager1',
+                'org.freedesktop.FileManager1',
+                None
+            )
+            proxy.ShowItems('(ass)', [uri], '')
+        except Exception:
+            subprocess.Popen(["xdg-open", os.path.dirname(filepath)])
 
     def on_speed_changed(self, combo, pspec):
         selected = combo.get_selected()

@@ -267,21 +267,11 @@ class BootAnimationPreviewerApp(Adw.Application):
         adj_h = Gtk.Adjustment.new(2400.0, 100.0, 8000.0, 10.0, 100.0, 0.0)
         self.custom_h_spin = Gtk.SpinButton(adjustment=adj_h, climb_rate=10.0, digits=0)
 
-        # Metadata / Info Group
-        self.info_group = Adw.PreferencesGroup(title="Animation Metadata")
-        vbox.append(self.info_group)
-
-        self.row_filename = Adw.ActionRow(title="File Name", subtitle="-")
-        self.row_resolution = Adw.ActionRow(title="Resolution", subtitle="-")
-        self.row_fps = Adw.ActionRow(title="Frame Rate", subtitle="-")
-        self.row_parts = Adw.ActionRow(title="Total Parts", subtitle="-")
-        self.row_frames = Adw.ActionRow(title="Total Frames", subtitle="-")
-
-        self.info_group.add(self.row_filename)
-        self.info_group.add(self.row_resolution)
-        self.info_group.add(self.row_fps)
-        self.info_group.add(self.row_parts)
-        self.info_group.add(self.row_frames)
+        self._meta_filename = "-"
+        self._meta_resolution = "-"
+        self._meta_fps = "-"
+        self._meta_parts = "-"
+        self._meta_frames = "-"
 
     def build_content_area(self):
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -331,6 +321,16 @@ class BootAnimationPreviewerApp(Adw.Application):
         export_btn.set_child(export_content)
         export_btn.connect("clicked", self.on_export_clicked)
         content_header.pack_end(export_btn)
+
+        # File info button
+        self.btn_file_info = Gtk.Button()
+        info_content = Adw.ButtonContent()
+        info_content.set_icon_name("dialog-information-symbolic")
+        info_content.set_label("Info")
+        self.btn_file_info.set_child(info_content)
+        self.btn_file_info.set_sensitive(False)
+        self.btn_file_info.connect("clicked", self.on_file_info_clicked)
+        content_header.pack_end(self.btn_file_info)
 
         # Canvas Preview Area Container
         canvas_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -465,16 +465,17 @@ class BootAnimationPreviewerApp(Adw.Application):
         self.current_part_play_count = 0
         self.pause_remaining_frames = 0
         
-        self.row_filename.set_subtitle(self.animation.filename)
-        self.row_resolution.set_subtitle(f"{self.animation.width} x {self.animation.height}")
-        self.row_fps.set_subtitle(f"{self.animation.fps} FPS")
-        self.row_parts.set_subtitle(str(len(self.animation.parts)))
-        self.row_frames.set_subtitle(str(self.animation.get_total_frames()))
+        self._meta_filename = self.animation.filename
+        self._meta_resolution = f"{self.animation.width} x {self.animation.height}"
+        self._meta_fps = f"{self.animation.fps} FPS"
+        self._meta_parts = str(len(self.animation.parts))
+        self._meta_frames = str(self.animation.get_total_frames())
 
         self.update_playback_status_labels()
         self.drawing_area.queue_draw()
 
         self.btn_status_info.set_sensitive(True)
+        self.btn_file_info.set_sensitive(True)
 
         total = self._compute_total_logical_frames()
         self.seekbar.set_range(0, max(0, total))
@@ -872,6 +873,17 @@ class BootAnimationPreviewerApp(Adw.Application):
 
     def on_status_info_toggled(self, btn):
         self.status_info_bar.set_visible(btn.get_active())
+
+    def on_file_info_clicked(self, btn):
+        if not self.animation:
+            return
+        dialog = Adw.AlertDialog(
+            heading=self._meta_filename,
+            body=f"{self._meta_resolution}\n{self._meta_fps}\n{self._meta_parts} parts\n{self._meta_frames} frames"
+        )
+        dialog.add_response("ok", "OK")
+        dialog.set_default_response("ok")
+        dialog.present(self.window)
 
     def on_speed_changed(self, combo, pspec):
         selected = combo.get_selected()

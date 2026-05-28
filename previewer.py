@@ -537,17 +537,17 @@ class BootAnimationPreviewerApp(Adw.Application):
         cr.set_source_rgb(0.08, 0.08, 0.08)
         cr.paint()
 
-        if not self.animation:
-            return
-
         preset = DEVICE_PRESETS[self.selected_preset_index]
-        
+
         if preset["name"] == "Custom Dimensions":
             dev_w = int(self.custom_w_spin.get_value())
             dev_h = int(self.custom_h_spin.get_value())
-        elif preset["width"] is None or preset["height"] is None:
-            dev_w = self.animation.width or 1080
-            dev_h = self.animation.height or 1920
+        elif not self.animation or preset["width"] is None or preset["height"] is None:
+            if self.animation:
+                dev_w = self.animation.width or 1080
+                dev_h = self.animation.height or 1920
+            else:
+                dev_w, dev_h = 1080, 2400
         else:
             dev_w = preset["width"]
             dev_h = preset["height"]
@@ -565,7 +565,10 @@ class BootAnimationPreviewerApp(Adw.Application):
         cr.save()
         cr.set_source_rgb(0.18, 0.18, 0.18)
         cr.set_line_width(8)
-        cr.round_rectangle(dev_x - 4, dev_y - 4, dev_disp_w + 8, dev_disp_h + 8, 20, 20) if hasattr(cr, 'round_rectangle') else cr.rectangle(dev_x - 4, dev_y - 4, dev_disp_w + 8, dev_disp_h + 8)
+        if hasattr(cr, 'round_rectangle'):
+            cr.round_rectangle(dev_x - 4, dev_y - 4, dev_disp_w + 8, dev_disp_h + 8, 20, 20)
+        else:
+            cr.rectangle(dev_x - 4, dev_y - 4, dev_disp_w + 8, dev_disp_h + 8)
         cr.stroke()
         cr.restore()
 
@@ -573,6 +576,13 @@ class BootAnimationPreviewerApp(Adw.Application):
         cr.save()
         cr.rectangle(dev_x, dev_y, dev_disp_w, dev_disp_h)
         cr.clip()
+
+        if not self.animation:
+            cr.set_source_rgb(0, 0, 0)
+            cr.rectangle(dev_x, dev_y, dev_disp_w, dev_disp_h)
+            cr.fill()
+            cr.restore()
+            return
 
         bg_r, bg_g, bg_b = 0.0, 0.0, 0.0
         if self.current_part_index < len(self.animation.parts):

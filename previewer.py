@@ -604,13 +604,31 @@ class BootAnimationPreviewerApp(Adw.Application):
             return
         if not self.animation:
             return
-            
+
+        if self._is_at_end():
+            self.current_part_index = 0
+            self.current_frame_index = 0
+            self.current_part_play_count = 0
+            self.pause_remaining_frames = 0
+            self.update_playback_status_labels()
+            self.drawing_area.queue_draw()
+
         self.playing = True
         self.btn_play_pause.set_icon_name("media-playback-pause-symbolic")
-        
+
         fps = self.animation.fps or 30
         interval = int(1000 / (fps * self.speed_multiplier))
         self.timer_id = GLib.timeout_add(interval, self.on_tick)
+
+    def _is_at_end(self):
+        if not self.animation or not self.animation.parts:
+            return True
+        last_idx = len(self.animation.parts) - 1
+        if self.current_part_index < last_idx:
+            return False
+        if self.current_frame_index < len(self.animation.parts[-1]['frames']) - 1:
+            return False
+        return True
 
     def stop_playback(self):
         self.playing = False

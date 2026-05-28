@@ -92,4 +92,4 @@ Export resolution is determined by the currently selected device preset.
 
 ## License
 
-MIT
+GPL 3.0

@@ -2,6 +2,7 @@
 import os
 import re
 import shutil
+import subprocess
 import sys
 import zipfile
 import cairo
@@ -889,13 +890,7 @@ class BootAnimationPreviewerApp(Adw.Application):
             self.show_error_dialog("Export Error", "No frames to export.")
             return
 
-        import tempfile
-        fd, tmp_mp4 = tempfile.mkstemp(suffix='.mp4')
-        os.close(fd)
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        writer = cv2.VideoWriter(tmp_mp4, fourcc, fps, (dev_w, dev_h))
-
-        self._export_state = {
+        state = {
             'filepath': filepath,
             'frames': frames,
             'dev_w': dev_w,
@@ -904,9 +899,34 @@ class BootAnimationPreviewerApp(Adw.Application):
             'ext': ext,
             'idx': 0,
             'total': len(frames),
-            'tmp_mp4': tmp_mp4,
-            'writer': writer,
         }
+
+        if ext == '.gif':
+            cmd = [
+                'ffmpeg', '-y',
+                '-f', 'rawvideo',
+                '-vcodec', 'rawvideo',
+                '-s', f'{dev_w}x{dev_h}',
+                '-pix_fmt', 'rgb24',
+                '-r', str(fps),
+                '-i', '-',
+                '-filter_complex',
+                '[0:v]split[v1][v2];[v1]palettegen=max_colors=256:stats_mode=full[p];[v2][p]paletteuse=dither=bayer:bayer_scale=5',
+                '-loop', '0',
+                filepath
+            ]
+            proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+            state['ffmpeg_proc'] = proc
+        else:
+            import tempfile
+            fd, tmp_mp4 = tempfile.mkstemp(suffix='.mp4')
+            os.close(fd)
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            writer = cv2.VideoWriter(tmp_mp4, fourcc, fps, (dev_w, dev_h))
+            state['tmp_mp4'] = tmp_mp4
+            state['writer'] = writer
+
+        self._export_state = state
 
         export_dialog = Adw.AlertDialog(
             heading="Exporting Animation",
@@ -971,13 +991,12 @@ class BootAnimationPreviewerApp(Adw.Application):
 
     def _export_process_batch(self):
         state = self._export_state
-        writer = state['writer']
         batch_size = 3
 
         try:
             for _ in range(batch_size):
                 if state.get('cancelled'):
-                    writer.release()
+                    self._abort_export_writer()
                     self._finish_export(cancelled=True)
                     return False
 
@@ -987,8 +1006,12 @@ class BootAnimationPreviewerApp(Adw.Application):
                 part_idx, frame_idx = state['frames'][state['idx']]
                 surface = self.render_frame_to_surface(part_idx, frame_idx, state['dev_w'], state['dev_h'])
                 rgb_array = self.surface_to_numpy_rgb(surface)
-                bgr = cv2.cvtColor(rgb_array, cv2.COLOR_RGB2BGR)
-                writer.write(bgr)
+
+                if 'ffmpeg_proc' in state:
+                    state['ffmpeg_proc'].stdin.write(rgb_array.tobytes())
+                else:
+                    bgr = cv2.cvtColor(rgb_array, cv2.COLOR_RGB2BGR)
+                    state['writer'].write(bgr)
                 state['idx'] += 1
 
             if state['idx'] < state['total']:
@@ -996,13 +1019,19 @@ class BootAnimationPreviewerApp(Adw.Application):
                     self._export_dialog.set_body(f"Rendered {state['idx']}/{state['total']} frames...")
                 return True
 
-            writer.release()
             self._finish_export(encode=True)
         except Exception as e:
-            writer.release()
+            self._abort_export_writer()
             self._finish_export(error=str(e))
 
         return False
+
+    def _abort_export_writer(self):
+        state = self._export_state
+        if 'ffmpeg_proc' in state:
+            state['ffmpeg_proc'].kill()
+        elif 'writer' in state:
+            state['writer'].release()
 
     def _finish_export(self, encode=False, error=None, cancelled=False):
         if cancelled:
@@ -1032,8 +1061,14 @@ class BootAnimationPreviewerApp(Adw.Application):
 
         try:
             if ext == '.gif':
-                self._export_gif(state)
+                proc = state['ffmpeg_proc']
+                proc.stdin.close()
+                proc.wait()
+                if proc.returncode != 0:
+                    stderr = proc.stderr.read().decode()
+                    raise RuntimeError(f"ffmpeg GIF encoding failed: {stderr}")
             elif ext == '.mp4':
+                state['writer'].release()
                 shutil.move(state['tmp_mp4'], state['filepath'])
             else:
                 raise ValueError(f"Unsupported format: {ext}")
@@ -1051,22 +1086,12 @@ class BootAnimationPreviewerApp(Adw.Application):
         finally:
             self._cleanup_export()
 
-    def _export_gif(self, state):
-        cmd = [
-            'ffmpeg', '-y',
-            '-i', state['tmp_mp4'],
-            '-filter_complex',
-            '[0:v]split[v1][v2];[v1]palettegen=max_colors=256:stats_mode=full[p];[v2][p]paletteuse=dither=bayer:bayer_scale=5',
-            '-loop', '0',
-            state['filepath']
-        ]
-        subprocess.run(cmd, check=True, capture_output=True)
-
     def _cleanup_export(self):
         if hasattr(self, '_export_state') and self._export_state:
-            tmp = self._export_state.get('tmp_mp4')
-            if tmp and os.path.exists(tmp):
-                os.unlink(tmp)
+            if 'tmp_mp4' in self._export_state:
+                tmp = self._export_state['tmp_mp4']
+                if os.path.exists(tmp):
+                    os.unlink(tmp)
             self._export_state = {}
         self._export_dialog = None
 

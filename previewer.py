@@ -12,7 +12,6 @@ gi.require_version('Adw', '1')
 gi.require_version('Gdk', '4.0')
 gi.require_version('GdkPixbuf', '2.0')
 from gi.repository import GLib, Gio, Gtk, Gdk, GdkPixbuf, Adw
-from PIL import Image
 import cv2
 import numpy
 
@@ -901,18 +900,13 @@ class BootAnimationPreviewerApp(Adw.Application):
             'total': len(frames),
         }
 
-        if ext == '.gif':
-            import tempfile
-            tmpdir = tempfile.mkdtemp()
-            state['tmpdir'] = tmpdir
-        else:
-            import tempfile
-            fd, tmp_mp4 = tempfile.mkstemp(suffix='.mp4')
-            os.close(fd)
-            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            writer = cv2.VideoWriter(tmp_mp4, fourcc, fps, (dev_w, dev_h))
-            state['tmp_mp4'] = tmp_mp4
-            state['writer'] = writer
+        import tempfile
+        fd, tmp_mp4 = tempfile.mkstemp(suffix='.mp4')
+        os.close(fd)
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        writer = cv2.VideoWriter(tmp_mp4, fourcc, fps, (dev_w, dev_h))
+        state['tmp_mp4'] = tmp_mp4
+        state['writer'] = writer
 
         self._export_state = state
 
@@ -994,13 +988,8 @@ class BootAnimationPreviewerApp(Adw.Application):
                 part_idx, frame_idx = state['frames'][state['idx']]
                 surface = self.render_frame_to_surface(part_idx, frame_idx, state['dev_w'], state['dev_h'])
                 rgb_array = self.surface_to_numpy_rgb(surface)
-
-                if 'tmpdir' in state:
-                    png_path = os.path.join(state['tmpdir'], f'f{state["idx"]:06d}.png')
-                    Image.fromarray(rgb_array).save(png_path, compress_level=1)
-                else:
-                    bgr = cv2.cvtColor(rgb_array, cv2.COLOR_RGB2BGR)
-                    state['writer'].write(bgr)
+                bgr = cv2.cvtColor(rgb_array, cv2.COLOR_RGB2BGR)
+                state['writer'].write(bgr)
                 state['idx'] += 1
 
             if state['idx'] < state['total']:
@@ -1048,28 +1037,20 @@ class BootAnimationPreviewerApp(Adw.Application):
 
         try:
             if ext == '.gif':
-                tmpdir = state['tmpdir']
-                palette_path = os.path.join(tmpdir, 'palette.png')
-                input_pattern = os.path.join(tmpdir, 'f%06d.png')
-                fr = str(state['fps'])
-
+                state['writer'].release()
+                palette_path = state['tmp_mp4'] + '.png'
                 subprocess.run([
                     'ffmpeg', '-y',
-                    '-f', 'image2',
-                    '-i', input_pattern,
+                    '-i', state['tmp_mp4'],
                     '-vf', 'palettegen=max_colors=256:stats_mode=diff',
                     palette_path,
                     '-loglevel', 'error'
                 ], check=True, capture_output=True)
-
                 subprocess.run([
                     'ffmpeg', '-y',
-                    '-f', 'image2',
-                    '-framerate', fr,
-                    '-i', input_pattern,
+                    '-i', state['tmp_mp4'],
                     '-i', palette_path,
-                    '-filter_complex',
-                    f'[0:v]setpts=N/({fr}*TB)[v];[v][1:v]paletteuse=dither=bayer:bayer_scale=5',
+                    '-lavfi', 'paletteuse=dither=bayer:bayer_scale=5',
                     '-loop', '0',
                     state['filepath'],
                     '-loglevel', 'error'
@@ -1100,10 +1081,11 @@ class BootAnimationPreviewerApp(Adw.Application):
 
     def _cleanup_export(self):
         if hasattr(self, '_export_state') and self._export_state:
-            if 'tmpdir' in self._export_state:
-                shutil.rmtree(self._export_state['tmpdir'], ignore_errors=True)
-            elif 'tmp_mp4' in self._export_state:
-                tmp = self._export_state['tmp_mp4']
+            tmp = self._export_state.get('tmp_mp4')
+            if tmp:
+                palette = tmp + '.png'
+                if os.path.exists(palette):
+                    os.unlink(palette)
                 if os.path.exists(tmp):
                     os.unlink(tmp)
             self._export_state = {}

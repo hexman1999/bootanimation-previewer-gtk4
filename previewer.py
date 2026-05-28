@@ -860,15 +860,6 @@ class BootAnimationPreviewerApp(Adw.Application):
 
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
 
-        backdrop_click = Gtk.GestureClick()
-        backdrop_click.connect("pressed", lambda *a: dialog.close())
-        dialog.add_controller(backdrop_click)
-
-        outer_catch = Gtk.GestureClick()
-        outer_catch.set_propagation_phase(Gtk.PropagationPhase.BUBBLE)
-        outer_catch.connect("pressed", lambda *a: None)
-        outer.add_controller(outer_catch)
-
         # Header with title and close
         title_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         title_bar.set_margin_start(12)

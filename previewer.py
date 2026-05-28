@@ -492,15 +492,10 @@ class BootAnimationPreviewerApp(Adw.Application):
             cr.translate(dev_x, dev_y)
             cr.scale(scale_dev, scale_dev)
 
-            # Native Android Scaling / Cropping rules:
-            # - If animation has trim.txt: Android renders it at 1:1, cropping if it exceeds device boundaries.
-            # - If animation lacks trim.txt (e.g. LineageOS): Android scales it to fit the device screen.
-            has_trims = any(len(p['trims']) > 0 for p in self.animation.parts)
-            
-            if has_trims:
-                scale_anim = 1.0
-            else:
-                scale_anim = min(dev_w / anim_w, dev_h / anim_h)
+            # The logical animation canvas is ALWAYS rendered centered inside the device screen at 1:1 scale.
+            # This ensures higher-density screens (like 1440x3200) naturally render the animation physically smaller
+            # compared to lower-density screens (like 1080x2400), and larger animations are cropped correctly.
+            scale_anim = 1.0
 
             anim_disp_w = anim_w * scale_anim
             anim_disp_h = anim_h * scale_anim

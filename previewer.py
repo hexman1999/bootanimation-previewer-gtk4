@@ -1093,6 +1093,9 @@ class BootAnimationPreviewerApp(Adw.Application):
             if file_info:
                 filepath = file_info.get_path()
                 self.load_animation(filepath)
+        except GLib.Error as e:
+            if e.domain != 'g-io-error-quark' or e.code != Gio.IOErrorEnum.DISMISSED:
+                print(f"Error selecting file: {e}")
         except Exception as e:
             print(f"Error selecting file: {e}")
 
@@ -1183,6 +1186,9 @@ class BootAnimationPreviewerApp(Adw.Application):
                 return
             filepath = file_info.get_path()
             self.do_export(filepath)
+        except GLib.Error as e:
+            if e.domain != 'g-io-error-quark' or e.code != Gio.IOErrorEnum.DISMISSED:
+                self.show_error_dialog("Export Error", f"Failed to save file: {e}")
         except Exception as e:
             self.show_error_dialog("Export Error", f"Failed to save file: {e}")
 

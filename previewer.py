@@ -372,6 +372,7 @@ class BootAnimationPreviewerApp(Adw.Application):
         seekbar_box.set_margin_bottom(8)
         seekbar_box.set_spacing(8)
         self.seekbar = Gtk.Scale(orientation=Gtk.Orientation.HORIZONTAL)
+        self.seekbar.set_range(0, 0)
         self.seekbar.set_hexpand(True)
         self.seekbar.set_sensitive(False)
         self._seekbar_handler_id = self.seekbar.connect("value-changed", self.on_seekbar_value_changed)
@@ -454,27 +455,21 @@ class BootAnimationPreviewerApp(Adw.Application):
 
     def load_animation(self, filepath):
         self.stop_playback()
-        
-        if self.animation:
-            self.animation.close()
-            self.animation = None
 
         try:
-            self.animation = BootAnimation(filepath)
+            new_anim = BootAnimation(filepath)
         except (ValueError, zipfile.BadZipFile, KeyError) as e:
             self.show_error_dialog("Invalid Boot Animation", str(e))
-            self.seekbar.set_sensitive(False)
-            self.seekbar.set_range(0, 0)
-            self.seekbar.set_value(0)
             self.drawing_area.queue_draw()
             return
         except Exception as e:
             self.show_error_dialog("Failed to Open File", str(e))
-            self.seekbar.set_sensitive(False)
-            self.seekbar.set_range(0, 0)
-            self.seekbar.set_value(0)
             self.drawing_area.queue_draw()
             return
+
+        if self.animation:
+            self.animation.close()
+        self.animation = new_anim
         
         self.current_part_index = 0
         self.current_frame_index = 0

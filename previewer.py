@@ -889,6 +889,12 @@ class BootAnimationPreviewerApp(Adw.Application):
             self.show_error_dialog("Export Error", "No frames to export.")
             return
 
+        import tempfile
+        fd, tmp_mp4 = tempfile.mkstemp(suffix='.mp4')
+        os.close(fd)
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        writer = cv2.VideoWriter(tmp_mp4, fourcc, fps, (dev_w, dev_h))
+
         self._export_state = {
             'filepath': filepath,
             'frames': frames,
@@ -897,8 +903,9 @@ class BootAnimationPreviewerApp(Adw.Application):
             'fps': fps,
             'ext': ext,
             'idx': 0,
-            'arrays': [],
             'total': len(frames),
+            'tmp_mp4': tmp_mp4,
+            'writer': writer,
         }
 
         export_dialog = Adw.AlertDialog(
@@ -964,11 +971,13 @@ class BootAnimationPreviewerApp(Adw.Application):
 
     def _export_process_batch(self):
         state = self._export_state
+        writer = state['writer']
         batch_size = 3
 
         try:
             for _ in range(batch_size):
                 if state.get('cancelled'):
+                    writer.release()
                     self._finish_export(cancelled=True)
                     return False
 
@@ -978,7 +987,8 @@ class BootAnimationPreviewerApp(Adw.Application):
                 part_idx, frame_idx = state['frames'][state['idx']]
                 surface = self.render_frame_to_surface(part_idx, frame_idx, state['dev_w'], state['dev_h'])
                 rgb_array = self.surface_to_numpy_rgb(surface)
-                state['arrays'].append(rgb_array)
+                bgr = cv2.cvtColor(rgb_array, cv2.COLOR_RGB2BGR)
+                writer.write(bgr)
                 state['idx'] += 1
 
             if state['idx'] < state['total']:
@@ -986,8 +996,10 @@ class BootAnimationPreviewerApp(Adw.Application):
                     self._export_dialog.set_body(f"Rendered {state['idx']}/{state['total']} frames...")
                 return True
 
+            writer.release()
             self._finish_export(encode=True)
         except Exception as e:
+            writer.release()
             self._finish_export(error=str(e))
 
         return False
@@ -1013,8 +1025,7 @@ class BootAnimationPreviewerApp(Adw.Application):
     def _export_encode(self):
         state = self._export_state
         ext = state['ext']
-        arrays = state['arrays']
-        frame_count = len(arrays)
+        frame_count = state['total']
 
         if self._export_dialog:
             self._export_dialog.set_body("Encoding video...")
@@ -1023,7 +1034,7 @@ class BootAnimationPreviewerApp(Adw.Application):
             if ext == '.gif':
                 self._export_gif(state)
             elif ext == '.mp4':
-                self._export_mp4(state)
+                os.replace(state['tmp_mp4'], state['filepath'])
             else:
                 raise ValueError(f"Unsupported format: {ext}")
 
@@ -1041,59 +1052,23 @@ class BootAnimationPreviewerApp(Adw.Application):
             self._cleanup_export()
 
     def _export_gif(self, state):
-        import tempfile
-
-        arrays = state['arrays']
-        fps = state['fps']
-        filepath = state['filepath']
-
-        fd, tmp_mp4 = tempfile.mkstemp(suffix='.mp4')
-        os.close(fd)
-
-        try:
-            h, w = arrays[0].shape[:2]
-            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            out = cv2.VideoWriter(tmp_mp4, fourcc, fps, (w, h))
-            try:
-                while arrays:
-                    arr = arrays.pop(0)
-                    bgr = cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
-                    out.write(bgr)
-            finally:
-                out.release()
-
-            cmd = [
-                'ffmpeg', '-y',
-                '-i', tmp_mp4,
-                '-filter_complex',
-                '[0:v]split[v1][v2];[v1]palettegen=max_colors=256:stats_mode=full[p];[v2][p]paletteuse=dither=bayer:bayer_scale=5',
-                '-loop', '0',
-                filepath
-            ]
-            subprocess.run(cmd, check=True, capture_output=True)
-        except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"ffmpeg GIF conversion failed: {e.stderr.decode()}")
-        finally:
-            os.unlink(tmp_mp4)
-
-    def _export_mp4(self, state):
-        arrays = state['arrays']
-        h, w = arrays[0].shape[:2]
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(state['filepath'], fourcc, state['fps'], (w, h))
-        while arrays:
-            arr = arrays.pop(0)
-            bgr = cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
-            out.write(bgr)
-        out.release()
+        cmd = [
+            'ffmpeg', '-y',
+            '-i', state['tmp_mp4'],
+            '-filter_complex',
+            '[0:v]split[v1][v2];[v1]palettegen=max_colors=256:stats_mode=full[p];[v2][p]paletteuse=dither=bayer:bayer_scale=5',
+            '-loop', '0',
+            state['filepath']
+        ]
+        subprocess.run(cmd, check=True, capture_output=True)
 
     def _cleanup_export(self):
         if hasattr(self, '_export_state') and self._export_state:
-            self._export_state['arrays'].clear()
-            self._export_state['arrays'] = []
+            tmp = self._export_state.get('tmp_mp4')
+            if tmp and os.path.exists(tmp):
+                os.unlink(tmp)
             self._export_state = {}
-        if hasattr(self, '_export_dialog'):
-            self._export_dialog = None
+        self._export_dialog = None
 
     def show_success_dialog(self, title, message):
         dialog = Adw.AlertDialog(heading=title, body=message)

@@ -1050,19 +1050,26 @@ class BootAnimationPreviewerApp(Adw.Application):
             if ext == '.gif':
                 tmpdir = state['tmpdir']
                 palette_path = os.path.join(tmpdir, 'palette.png')
+                input_pattern = os.path.join(tmpdir, 'f%06d.png')
+
                 subprocess.run([
                     'ffmpeg', '-y',
-                    '-pattern_type', 'glob', '-i', os.path.join(tmpdir, '*.png'),
+                    '-f', 'image2',
+                    '-i', input_pattern,
                     '-vf', 'palettegen=max_colors=256:stats_mode=diff',
-                    palette_path
+                    palette_path,
+                    '-loglevel', 'error'
                 ], check=True, capture_output=True)
+
                 subprocess.run([
                     'ffmpeg', '-y',
-                    '-pattern_type', 'glob', '-i', os.path.join(tmpdir, '*.png'),
+                    '-f', 'image2',
+                    '-i', input_pattern,
                     '-i', palette_path,
                     '-lavfi', 'paletteuse=dither=bayer:bayer_scale=5',
                     '-loop', '0',
-                    state['filepath']
+                    state['filepath'],
+                    '-loglevel', 'error'
                 ], check=True, capture_output=True)
             elif ext == '.mp4':
                 state['writer'].release()
@@ -1076,6 +1083,11 @@ class BootAnimationPreviewerApp(Adw.Application):
                 "Export Complete",
                 f"Exported {frame_count} frames to {os.path.basename(state['filepath'])}"
             )
+        except subprocess.CalledProcessError as e:
+            msg = e.stderr.decode() if e.stderr else str(e)
+            if self._export_dialog:
+                self._export_dialog.close()
+            self.show_error_dialog("Export Failed", f"ffmpeg error: {msg[:500]}")
         except Exception as e:
             if self._export_dialog:
                 self._export_dialog.close()

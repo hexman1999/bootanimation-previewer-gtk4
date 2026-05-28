@@ -212,55 +212,6 @@ class BootAnimationPreviewerApp(Adw.Application):
         
         self.workspace_dir = "/home/muhammad/Desktop/bootanimation previewer antigravity"
 
-    def do_activate(self):
-        self.build_ui()
-        Adw.StyleManager.get_default().set_color_scheme(Adw.ColorScheme.PREFER_DARK)
-
-    def build_ui(self):
-        # Main Window
-        self.window = Adw.ApplicationWindow(application=self, title="Boot Animation Previewer")
-        self.window.set_default_size(1080, 750)
-        self.window.set_icon_name("phone")
-
-        # Overlay Split View to allow sidebar resizing
-        self.split_view = Adw.OverlaySplitView()
-        self.split_view.set_min_sidebar_width(280)
-        self.split_view.set_max_sidebar_width(400)
-        self.split_view.set_sidebar_width_fraction(0.3)
-        self.split_view.set_show_sidebar(True)
-        self.split_view.set_pin_sidebar(True)
-        self.window.set_content(self.split_view)
-
-        # Sidebar Content
-        self.build_sidebar()
-        
-        # Main Content Preview Area
-        self.build_content_area()
-
-        self.window.present()
-
-    def build_sidebar(self):
-        sidebar_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        sidebar_box.add_css_class("background")
-        self.split_view.set_sidebar(sidebar_box)
-
-        # Sidebar Header
-        sidebar_header = Adw.HeaderBar()
-        sidebar_header.set_show_end_title_buttons(False)
-        sidebar_box.append(sidebar_header)
-
-        # Scrolled view for sidebar metadata/options
-        scrolled = Gtk.ScrolledWindow()
-        scrolled.set_vexpand(True)
-        sidebar_box.append(scrolled)
-
-        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
-        vbox.set_margin_start(16)
-        vbox.set_margin_end(16)
-        vbox.set_margin_top(16)
-        vbox.set_margin_bottom(16)
-        scrolled.set_child(vbox)
-
         # Custom Dimensions spin buttons (hidden, used as data source for the popup)
         adj_w = Gtk.Adjustment.new(1080.0, 100.0, 8000.0, 10.0, 100.0, 0.0)
         self.custom_w_spin = Gtk.SpinButton(adjustment=adj_w, climb_rate=10.0, digits=0)
@@ -273,20 +224,24 @@ class BootAnimationPreviewerApp(Adw.Application):
         self._meta_parts = "-"
         self._meta_frames = "-"
 
+    def do_activate(self):
+        self.build_ui()
+        Adw.StyleManager.get_default().set_color_scheme(Adw.ColorScheme.PREFER_DARK)
+
+    def build_ui(self):
+        self.window = Adw.ApplicationWindow(application=self, title="Boot Animation Previewer")
+        self.window.set_default_size(1080, 750)
+        self.window.set_icon_name("phone")
+        self.build_content_area()
+        self.window.present()
+
     def build_content_area(self):
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        self.split_view.set_content(main_box)
+        self.window.set_content(main_box)
 
         # Main HeaderBar
         content_header = Adw.HeaderBar()
         main_box.append(content_header)
-
-        # Toggle button to collapse/expand the sidebar
-        sidebar_toggle = Gtk.ToggleButton(icon_name="sidebar-show-symbolic")
-        sidebar_toggle.set_active(True)
-        sidebar_toggle.set_tooltip_text("Toggle Sidebar")
-        sidebar_toggle.connect("toggled", lambda btn: self.split_view.set_show_sidebar(btn.get_active()))
-        content_header.pack_start(sidebar_toggle)
 
         # Device Dimensions Selector in the title bar
         self.preset_combo = Gtk.DropDown.new_from_strings([p["name"] for p in DEVICE_PRESETS])
@@ -877,10 +832,29 @@ class BootAnimationPreviewerApp(Adw.Application):
     def on_file_info_clicked(self, btn):
         if not self.animation:
             return
-        dialog = Adw.AlertDialog(
-            heading=self._meta_filename,
-            body=f"{self._meta_resolution}\n{self._meta_fps}\n{self._meta_parts} parts\n{self._meta_frames} frames"
-        )
+        dialog = Adw.AlertDialog(heading="Animation Info")
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        box.set_margin_top(8)
+        box.set_margin_bottom(8)
+        fields = [
+            ("File Name", self._meta_filename),
+            ("Resolution", self._meta_resolution),
+            ("Frame Rate", self._meta_fps),
+            ("Parts", self._meta_parts),
+            ("Frames", self._meta_frames),
+        ]
+        for label, value in fields:
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+            lbl = Gtk.Label(label=f"{label}:")
+            lbl.set_xalign(0)
+            lbl.set_width_chars(12)
+            val = Gtk.Label(label=value)
+            val.set_xalign(0)
+            val.add_css_class("monospace")
+            row.append(lbl)
+            row.append(val)
+            box.append(row)
+        dialog.set_extra_child(box)
         dialog.add_response("ok", "OK")
         dialog.set_default_response("ok")
         dialog.present(self.window)

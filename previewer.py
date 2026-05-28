@@ -220,6 +220,7 @@ class BootAnimationPreviewerApp(Adw.Application):
         # Main Window
         self.window = Adw.ApplicationWindow(application=self, title="Boot Animation Previewer")
         self.window.set_default_size(1080, 750)
+        self.window.set_icon_name("multimedia-player")
 
         # Overlay Split View to allow sidebar resizing
         self.split_view = Adw.OverlaySplitView()

@@ -238,6 +238,11 @@ class BootAnimationPreviewerApp(Adw.Application):
         self.toast_overlay = Adw.ToastOverlay()
         self.toast_overlay.set_child(self.build_content_area())
         self.window.set_content(self.toast_overlay)
+
+        key_ctrl = Gtk.EventControllerKey()
+        key_ctrl.connect("key-pressed", self._on_window_key_pressed)
+        self.window.add_controller(key_ctrl)
+
         self.window.present()
 
     def build_content_area(self):
@@ -1439,6 +1444,32 @@ class BootAnimationPreviewerApp(Adw.Application):
         dialog.set_default_response("ok")
         dialog.present(self.window)
 
+
+    def _on_window_key_pressed(self, controller, keyval, keycode, state):
+        if state & Gdk.ModifierType.CONTROL_MASK:
+            return False
+
+        if keyval in (Gdk.KEY_o, Gdk.KEY_O):
+            self.on_open_file(None)
+        elif keyval in (Gdk.KEY_e, Gdk.KEY_E):
+            self.on_export_clicked(None)
+        elif keyval in (Gdk.KEY_i, Gdk.KEY_I):
+            self.on_file_info_clicked(None)
+        elif keyval == Gdk.KEY_space:
+            self.on_play_pause_clicked(None)
+        elif keyval in (Gdk.KEY_s, Gdk.KEY_S):
+            self.on_stop_clicked(None)
+        elif keyval in (Gdk.KEY_a, Gdk.KEY_A, Gdk.KEY_Left):
+            self.on_prev_frame_clicked(None)
+        elif keyval in (Gdk.KEY_d, Gdk.KEY_D, Gdk.KEY_Right):
+            self.on_next_frame_clicked(None)
+        elif keyval in (Gdk.KEY_l, Gdk.KEY_L):
+            self.on_loop_toggled(self.btn_loop)
+        elif keyval in (Gdk.KEY_t, Gdk.KEY_T):
+            self.on_status_info_toggled(self.btn_status_info)
+        else:
+            return False
+        return True
 
 if __name__ == "__main__":
     app = BootAnimationPreviewerApp()

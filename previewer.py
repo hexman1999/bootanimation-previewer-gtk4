@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 import os
 import re
+import shutil
+import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 import zipfile
 import cairo
 import gi
@@ -10,6 +13,8 @@ gi.require_version('Adw', '1')
 gi.require_version('Gdk', '4.0')
 gi.require_version('GdkPixbuf', '2.0')
 from gi.repository import GLib, Gio, Gtk, Gdk, GdkPixbuf, Adw
+import cv2
+import numpy
 
 # Initialize Libadwaita
 Adw.init()
@@ -353,6 +358,15 @@ class BootAnimationPreviewerApp(Adw.Application):
         
         open_btn.connect("clicked", self.on_open_file)
         content_header.pack_end(open_btn)
+
+        # Export button
+        export_btn = Gtk.Button()
+        export_content = Adw.ButtonContent()
+        export_content.set_icon_name("document-save-as-symbolic")
+        export_content.set_label("Export")
+        export_btn.set_child(export_content)
+        export_btn.connect("clicked", self.on_export_clicked)
+        content_header.pack_end(export_btn)
 
         # Canvas Preview Area Container
         canvas_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -763,6 +777,354 @@ class BootAnimationPreviewerApp(Adw.Application):
                 self.load_animation(filepath)
         except Exception as e:
             print(f"Error selecting file: {e}")
+
+    def render_frame_to_surface(self, part_index, frame_index, dev_w, dev_h):
+        surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, dev_w, dev_h)
+        cr = cairo.Context(surface)
+
+        bg_r, bg_g, bg_b = 0.0, 0.0, 0.0
+        if part_index < len(self.animation.parts):
+            part = self.animation.parts[part_index]
+            if part['bg_color']:
+                bg_r, bg_g, bg_b = self.parse_color(part['bg_color'])
+        cr.set_source_rgb(bg_r, bg_g, bg_b)
+        cr.paint()
+
+        frame_data = self.animation.get_frame_surface(part_index, frame_index)
+        if frame_data:
+            surface_f, frame_w, frame_h = frame_data
+            anim_w = self.animation.width or frame_w
+            anim_h = self.animation.height or frame_h
+
+            anim_x = (dev_w - anim_w) / 2
+            anim_y = (dev_h - anim_h) / 2
+
+            cr.save()
+            cr.translate(anim_x, anim_y)
+
+            part = self.animation.parts[part_index]
+            if part['trims'] and frame_index < len(part['trims']):
+                trim = part['trims'][frame_index]
+                cr.set_source_surface(surface_f, trim['x'], trim['y'])
+                cr.paint()
+            else:
+                frame_scale_x = anim_w / frame_w
+                frame_scale_y = anim_h / frame_h
+                cr.save()
+                cr.scale(frame_scale_x, frame_scale_y)
+                cr.set_source_surface(surface_f, 0, 0)
+                cr.paint()
+                cr.restore()
+
+            cr.restore()
+
+        surface.flush()
+        return surface
+
+    def _render_frame_to_array(self, part_idx, frame_idx, dev_w, dev_h):
+        surface = self.render_frame_to_surface(part_idx, frame_idx, dev_w, dev_h)
+        return self.surface_to_numpy_rgb(surface)
+
+    def surface_to_numpy_rgb(self, surface):
+        data = surface.get_data()
+        arr = numpy.frombuffer(data, dtype=numpy.uint8).reshape((surface.get_height(), surface.get_width(), 4))
+        r = arr[:, :, 2].copy()
+        g = arr[:, :, 1].copy()
+        b = arr[:, :, 0].copy()
+        return numpy.stack([r, g, b], axis=2)
+
+    def on_export_clicked(self, btn):
+        if not self.animation:
+            self.show_error_dialog("No Animation", "Open a boot animation first.")
+            return
+
+        dialog = Gtk.FileDialog(title="Export Animation")
+
+        mp4_filter = Gtk.FileFilter()
+        mp4_filter.set_name("MP4 Video (*.mp4)")
+        mp4_filter.add_pattern("*.mp4")
+
+        gif_filter = Gtk.FileFilter()
+        gif_filter.set_name("GIF Image (*.gif)")
+        gif_filter.add_pattern("*.gif")
+
+        filters = Gio.ListStore.new(Gtk.FileFilter)
+        filters.append(mp4_filter)
+        filters.append(gif_filter)
+        dialog.set_filters(filters)
+
+        basename = os.path.splitext(self.animation.filename)[0]
+        dialog.set_initial_name(f"{basename}.mp4")
+
+        dialog.save(self.window, None, self.on_export_file_selected)
+
+    def on_export_file_selected(self, dialog, result):
+        try:
+            file_info = dialog.save_finish(result)
+            if not file_info:
+                return
+            filepath = file_info.get_path()
+            self.do_export(filepath)
+        except Exception as e:
+            self.show_error_dialog("Export Error", f"Failed to save file: {e}")
+
+    def do_export(self, filepath):
+        if not self.animation:
+            return
+
+        self.stop_playback()
+
+        preset = DEVICE_PRESETS[self.selected_preset_index]
+        if preset["name"] == "Custom Dimensions":
+            dev_w = int(self.custom_w_spin.get_value())
+            dev_h = int(self.custom_h_spin.get_value())
+        elif preset["width"] is None or preset["height"] is None:
+            dev_w = self.animation.width or 1080
+            dev_h = self.animation.height or 1920
+        else:
+            dev_w = preset["width"]
+            dev_h = preset["height"]
+
+        fps = self.animation.fps or 30
+        ext = os.path.splitext(filepath)[1].lower()
+
+        frames = self._get_export_frame_list()
+
+        if not frames:
+            self.show_error_dialog("Export Error", "No frames to export.")
+            return
+
+        state = {
+            'filepath': filepath,
+            'frames': frames,
+            'dev_w': dev_w,
+            'dev_h': dev_h,
+            'fps': fps,
+            'ext': ext,
+            'idx': 0,
+            'total': len(frames),
+        }
+
+        import tempfile
+        fd, tmp_mp4 = tempfile.mkstemp(suffix='.mp4')
+        os.close(fd)
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        writer = cv2.VideoWriter(tmp_mp4, fourcc, fps, (dev_w, dev_h))
+        state['tmp_mp4'] = tmp_mp4
+        state['writer'] = writer
+
+        n_workers = max(1, os.cpu_count() - 1)
+        executor = ThreadPoolExecutor(max_workers=n_workers)
+        futures = []
+        for part_idx, frame_idx in frames:
+            futures.append(executor.submit(self._render_frame_to_array, part_idx, frame_idx, dev_w, dev_h))
+        state['executor'] = executor
+        state['futures'] = futures
+        state['next_to_write'] = 0
+
+        self._export_state = state
+
+        export_dialog = Adw.AlertDialog(
+            heading="Exporting Animation",
+            body=f"Rendering {len(frames)} frames at {dev_w}\u00d7{dev_h}..."
+        )
+        export_dialog.add_response("cancel", "Cancel")
+        export_dialog.connect("response", self._on_export_dialog_response)
+        export_dialog.present(self.window)
+        self._export_dialog = export_dialog
+
+        GLib.idle_add(self._export_process_batch)
+
+    def _get_export_frame_list(self):
+        frames = []
+        part_index = 0
+        frame_index = 0
+        part_play_count = 0
+        pause_remaining = 0
+
+        while part_index < len(self.animation.parts):
+            part = self.animation.parts[part_index]
+            total_frames = len(part['frames'])
+
+            if total_frames == 0:
+                part_index += 1
+                continue
+
+            frames.append((part_index, frame_index))
+
+            if pause_remaining > 0:
+                pause_remaining -= 1
+                if pause_remaining == 0:
+                    part_play_count += 1
+                    effective_count = part['count'] if part['count'] > 0 else self.infinite_part_loop_limit
+                    if part_play_count < effective_count:
+                        frame_index = 0
+                    else:
+                        part_index += 1
+                        frame_index = 0
+                        part_play_count = 0
+            else:
+                frame_index += 1
+                if frame_index >= total_frames:
+                    frame_index = total_frames - 1
+                    if part['pause'] > 0:
+                        pause_remaining = part['pause']
+                    else:
+                        part_play_count += 1
+                        effective_count = part['count'] if part['count'] > 0 else self.infinite_part_loop_limit
+                        if part_play_count < effective_count:
+                            frame_index = 0
+                        else:
+                            part_index += 1
+                            frame_index = 0
+                            part_play_count = 0
+
+        return frames
+
+    def _on_export_dialog_response(self, dialog, response):
+        if response == "cancel":
+            self._export_state['cancelled'] = True
+
+    def _export_process_batch(self):
+        state = self._export_state
+        futures = state['futures']
+        batch_size = 30
+
+        try:
+            written = 0
+            for _ in range(batch_size):
+                if state.get('cancelled'):
+                    state['executor'].shutdown(wait=False)
+                    self._abort_export_writer()
+                    self._finish_export(cancelled=True)
+                    return False
+
+                ntw = state['next_to_write']
+                if ntw >= state['total']:
+                    break
+
+                future = futures[ntw]
+                if not future.done():
+                    break
+
+                rgb = future.result()
+                futures[ntw] = None
+                bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+                state['writer'].write(bgr)
+                state['next_to_write'] = ntw + 1
+                written += 1
+
+            if state['next_to_write'] < state['total']:
+                if self._export_dialog and written > 0:
+                    self._export_dialog.set_body(f"Rendered {state['next_to_write']}/{state['total']} frames...")
+                return True
+
+            state['executor'].shutdown(wait=False)
+            self._finish_export(encode=True)
+        except Exception as e:
+            state['executor'].shutdown(wait=False)
+            self._abort_export_writer()
+            self._finish_export(error=str(e))
+
+        return False
+
+    def _abort_export_writer(self):
+        state = self._export_state
+        if 'writer' in state:
+            state['writer'].release()
+
+    def _finish_export(self, encode=False, error=None, cancelled=False):
+        if cancelled:
+            if self._export_dialog:
+                self._export_dialog.close()
+            self.show_error_dialog("Export Cancelled", "Export was cancelled.")
+            self._cleanup_export()
+            return
+
+        if error:
+            if self._export_dialog:
+                self._export_dialog.close()
+            self.show_error_dialog("Export Failed", error)
+            self._cleanup_export()
+            return
+
+        if encode:
+            self._export_encode()
+
+    def _export_encode(self):
+        state = self._export_state
+        ext = state['ext']
+        frame_count = state['total']
+
+        if self._export_dialog:
+            self._export_dialog.set_body("Encoding video...")
+
+        try:
+            if ext == '.gif':
+                state['writer'].release()
+                palette_path = state['tmp_mp4'] + '.png'
+                subprocess.run([
+                    'ffmpeg', '-y',
+                    '-i', state['tmp_mp4'],
+                    '-vf', 'palettegen=max_colors=256:stats_mode=diff',
+                    '-threads', '0',
+                    palette_path,
+                    '-loglevel', 'error'
+                ], check=True, capture_output=True)
+                subprocess.run([
+                    'ffmpeg', '-y',
+                    '-i', state['tmp_mp4'],
+                    '-i', palette_path,
+                    '-lavfi', 'paletteuse=dither=bayer:bayer_scale=5',
+                    '-threads', '0',
+                    '-loop', '0',
+                    state['filepath'],
+                    '-loglevel', 'error'
+                ], check=True, capture_output=True)
+            elif ext == '.mp4':
+                state['writer'].release()
+                shutil.move(state['tmp_mp4'], state['filepath'])
+            else:
+                raise ValueError(f"Unsupported format: {ext}")
+
+            if self._export_dialog:
+                self._export_dialog.close()
+            self.show_success_dialog(
+                "Export Complete",
+                f"Exported {frame_count} frames to {os.path.basename(state['filepath'])}"
+            )
+        except subprocess.CalledProcessError as e:
+            msg = e.stderr.decode() if e.stderr else str(e)
+            if self._export_dialog:
+                self._export_dialog.close()
+            self.show_error_dialog("Export Failed", f"ffmpeg error: {msg[:500]}")
+        except Exception as e:
+            if self._export_dialog:
+                self._export_dialog.close()
+            self.show_error_dialog("Export Failed", str(e))
+        finally:
+            self._cleanup_export()
+
+    def _cleanup_export(self):
+        if hasattr(self, '_export_state') and self._export_state:
+            executor = self._export_state.get('executor')
+            if executor:
+                executor.shutdown(wait=False)
+            tmp = self._export_state.get('tmp_mp4')
+            if tmp:
+                palette = tmp + '.png'
+                if os.path.exists(palette):
+                    os.unlink(palette)
+                if os.path.exists(tmp):
+                    os.unlink(tmp)
+            self._export_state = {}
+        self._export_dialog = None
+
+    def show_success_dialog(self, title, message):
+        dialog = Adw.AlertDialog(heading=title, body=message)
+        dialog.add_response("ok", "OK")
+        dialog.set_default_response("ok")
+        dialog.present(self.window)
 
 
 if __name__ == "__main__":

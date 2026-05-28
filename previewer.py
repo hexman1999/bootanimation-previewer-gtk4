@@ -305,6 +305,12 @@ class BootAnimationPreviewerApp(Adw.Application):
         self.preset_combo.set_tooltip_text("Select Device Frame Preset")
         content_header.pack_start(self.preset_combo)
 
+        self.btn_custom_dims = Gtk.Button(icon_name="document-edit-symbolic")
+        self.btn_custom_dims.set_visible(False)
+        self.btn_custom_dims.set_tooltip_text("Edit Custom Dimensions")
+        self.btn_custom_dims.connect("clicked", self._on_custom_edit_clicked)
+        content_header.pack_start(self.btn_custom_dims)
+
         # "Open Animation" button
         open_btn = Gtk.Button()
         open_btn.add_css_class("suggested-action")
@@ -880,18 +886,26 @@ class BootAnimationPreviewerApp(Adw.Application):
         preset = DEVICE_PRESETS[combo.get_selected()]
 
         if preset["name"] == "Custom Dimensions":
-            self._show_custom_dimensions_dialog(combo)
+            self.selected_preset_index = combo.get_selected()
+            self.btn_custom_dims.set_visible(True)
+            self._show_custom_dimensions_dialog()
             return
 
+        self.btn_custom_dims.set_visible(False)
         self.selected_preset_index = combo.get_selected()
         self.drawing_area.queue_draw()
 
-    def _show_custom_dimensions_dialog(self, combo):
-        dialog = Adw.AlertDialog(heading="Custom Viewport Dimensions", body="Set preview viewport width and height.")
+    def _on_custom_edit_clicked(self, btn):
+        self._show_custom_dimensions_dialog()
 
-        adj_w = Gtk.Adjustment.new(self.custom_w_spin.get_value(), 100.0, 8000.0, 10.0, 100.0, 0.0)
+    def _show_custom_dimensions_dialog(self):
+        cur_w = int(self.custom_w_spin.get_value())
+        cur_h = int(self.custom_h_spin.get_value())
+        dialog = Adw.AlertDialog(heading="Custom Viewport Dimensions", body=f"Set preview viewport width and height. Current: {cur_w}×{cur_h}")
+
+        adj_w = Gtk.Adjustment.new(cur_w, 100.0, 8000.0, 10.0, 100.0, 0.0)
         w_spin = Gtk.SpinButton(adjustment=adj_w, climb_rate=10.0, digits=0)
-        adj_h = Gtk.Adjustment.new(self.custom_h_spin.get_value(), 100.0, 8000.0, 10.0, 100.0, 0.0)
+        adj_h = Gtk.Adjustment.new(cur_h, 100.0, 8000.0, 10.0, 100.0, 0.0)
         h_spin = Gtk.SpinButton(adjustment=adj_h, climb_rate=10.0, digits=0)
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
@@ -915,19 +929,19 @@ class BootAnimationPreviewerApp(Adw.Application):
         dialog.add_response("apply", "Apply")
         dialog.set_default_response("apply")
         dialog.set_response_appearance("apply", Adw.ResponseAppearance.SUGGESTED)
-        dialog.connect("response", self._on_custom_dim_dialog_response, combo, w_spin, h_spin)
+        dialog.connect("response", self._on_custom_dim_dialog_response, w_spin, h_spin)
         dialog.present(self.window)
 
-    def _on_custom_dim_dialog_response(self, dialog, response, combo, w_spin, h_spin):
+    def _on_custom_dim_dialog_response(self, dialog, response, w_spin, h_spin):
         if response == "apply":
             self.custom_w_spin.set_value(w_spin.get_value())
             self.custom_h_spin.set_value(h_spin.get_value())
-            self.selected_preset_index = combo.get_selected()
+            self.selected_preset_index = self.preset_combo.get_selected()
             self.drawing_area.queue_draw()
         else:
-            combo.handler_block(self._preset_handler_id)
-            combo.set_selected(self.selected_preset_index)
-            combo.handler_unblock(self._preset_handler_id)
+            self.preset_combo.handler_block(self._preset_handler_id)
+            self.preset_combo.set_selected(self.selected_preset_index)
+            self.preset_combo.handler_unblock(self._preset_handler_id)
 
     def on_custom_dim_changed(self, spin):
         self.drawing_area.queue_draw()

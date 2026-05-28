@@ -767,4 +767,7 @@ class BootAnimationPreviewerApp(Adw.Application):
 
 if __name__ == "__main__":
     app = BootAnimationPreviewerApp()
-    sys.exit(app.run(sys.argv))
+    try:
+        sys.exit(app.run(sys.argv))
+    except KeyboardInterrupt:
+        print("\nExiting application.")

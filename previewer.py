@@ -882,10 +882,7 @@ class BootAnimationPreviewerApp(Adw.Application):
         fps = self.animation.fps or 30
         ext = os.path.splitext(filepath)[1].lower()
 
-        frames = []
-        for part_idx, part in enumerate(self.animation.parts):
-            for frame_idx in range(len(part['frames'])):
-                frames.append((part_idx, frame_idx))
+        frames = self._get_export_frame_list()
 
         if not frames:
             self.show_error_dialog("Export Error", "No frames to export.")
@@ -913,6 +910,52 @@ class BootAnimationPreviewerApp(Adw.Application):
         self._export_dialog = export_dialog
 
         GLib.idle_add(self._export_process_batch)
+
+    def _get_export_frame_list(self):
+        frames = []
+        part_index = 0
+        frame_index = 0
+        part_play_count = 0
+        pause_remaining = 0
+
+        while part_index < len(self.animation.parts):
+            part = self.animation.parts[part_index]
+            total_frames = len(part['frames'])
+
+            if total_frames == 0:
+                part_index += 1
+                continue
+
+            frames.append((part_index, frame_index))
+
+            if pause_remaining > 0:
+                pause_remaining -= 1
+                if pause_remaining == 0:
+                    part_play_count += 1
+                    effective_count = part['count'] if part['count'] > 0 else self.infinite_part_loop_limit
+                    if part_play_count < effective_count:
+                        frame_index = 0
+                    else:
+                        part_index += 1
+                        frame_index = 0
+                        part_play_count = 0
+            else:
+                frame_index += 1
+                if frame_index >= total_frames:
+                    frame_index = total_frames - 1
+                    if part['pause'] > 0:
+                        pause_remaining = part['pause']
+                    else:
+                        part_play_count += 1
+                        effective_count = part['count'] if part['count'] > 0 else self.infinite_part_loop_limit
+                        if part_play_count < effective_count:
+                            frame_index = 0
+                        else:
+                            part_index += 1
+                            frame_index = 0
+                            part_play_count = 0
+
+        return frames
 
     def _on_export_dialog_response(self, dialog, response):
         if response == "cancel":

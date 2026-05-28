@@ -1051,10 +1051,12 @@ class BootAnimationPreviewerApp(Adw.Application):
                 tmpdir = state['tmpdir']
                 palette_path = os.path.join(tmpdir, 'palette.png')
                 input_pattern = os.path.join(tmpdir, 'f%06d.png')
+                fr = str(state['fps'])
 
                 subprocess.run([
                     'ffmpeg', '-y',
                     '-f', 'image2',
+                    '-framerate', fr,
                     '-i', input_pattern,
                     '-vf', 'palettegen=max_colors=256:stats_mode=diff',
                     palette_path,
@@ -1064,6 +1066,7 @@ class BootAnimationPreviewerApp(Adw.Application):
                 subprocess.run([
                     'ffmpeg', '-y',
                     '-f', 'image2',
+                    '-framerate', fr,
                     '-i', input_pattern,
                     '-i', palette_path,
                     '-lavfi', 'paletteuse=dither=bayer:bayer_scale=5',

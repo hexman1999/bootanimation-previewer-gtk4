@@ -3,6 +3,7 @@ import os
 import re
 import sys
 import zipfile
+import cairo
 import gi
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
@@ -12,6 +13,18 @@ from gi.repository import GLib, Gio, Gtk, Gdk, GdkPixbuf, Adw
 
 # Initialize Libadwaita
 Adw.init()
+
+
+def pixbuf_to_surface(pixbuf):
+    """Convert a GdkPixbuf to a cairo.ImageSurface (avoids deprecated Gdk.cairo_set_source_pixbuf)."""
+    w = pixbuf.get_width()
+    h = pixbuf.get_height()
+    surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, w, h)
+    ctx = cairo.Context(surface)
+    Gdk.cairo_set_source_pixbuf(ctx, pixbuf, 0, 0)
+    ctx.paint()
+    surface.flush()
+    return surface
 
 DEVICE_PRESETS = [
     {"name": "Original Animation", "width": None, "height": None},
@@ -39,6 +52,12 @@ class BootAnimation:
         self.fps = 30
         self.parts = []
         self._frame_cache = {}
+        self._surface_cache = {}
+        
+        # Validate the zip contains desc.txt
+        if 'desc.txt' not in self.zip_file.namelist():
+            self.zip_file.close()
+            raise ValueError(f"'{self.filename}' is not a valid boot animation: missing desc.txt")
         
         self.parse_desc()
         self.load_parts_frames()
@@ -127,10 +146,11 @@ class BootAnimation:
             
             part['trims'] = trims
 
-    def get_frame_pixbuf(self, part_index, frame_index):
+    def get_frame_surface(self, part_index, frame_index):
+        """Returns a (cairo.ImageSurface, pixbuf_width, pixbuf_height) tuple for the given frame."""
         key = (part_index, frame_index)
-        if key in self._frame_cache:
-            return self._frame_cache[key]
+        if key in self._surface_cache:
+            return self._surface_cache[key]
         
         if part_index >= len(self.parts):
             return None
@@ -146,9 +166,11 @@ class BootAnimation:
             gbytes = GLib.Bytes.new(img_data)
             stream = Gio.MemoryInputStream.new_from_bytes(gbytes)
             pixbuf = GdkPixbuf.Pixbuf.new_from_stream(stream, None)
+            surface = pixbuf_to_surface(pixbuf)
+            result = (surface, pixbuf.get_width(), pixbuf.get_height())
             
-            self._frame_cache[key] = pixbuf
-            return pixbuf
+            self._surface_cache[key] = result
+            return result
         except Exception as e:
             print(f"Error loading frame {frame_file}: {e}")
             return None
@@ -401,8 +423,18 @@ class BootAnimationPreviewerApp(Adw.Application):
         
         if self.animation:
             self.animation.close()
+            self.animation = None
 
-        self.animation = BootAnimation(filepath)
+        try:
+            self.animation = BootAnimation(filepath)
+        except (ValueError, zipfile.BadZipFile, KeyError) as e:
+            self.show_error_dialog("Invalid Boot Animation", str(e))
+            self.drawing_area.queue_draw()
+            return
+        except Exception as e:
+            self.show_error_dialog("Failed to Open File", str(e))
+            self.drawing_area.queue_draw()
+            return
         
         self.current_part_index = 0
         self.current_frame_index = 0
@@ -418,6 +450,13 @@ class BootAnimationPreviewerApp(Adw.Application):
         self.update_playback_status_labels()
         self.drawing_area.queue_draw()
         self.start_playback()
+
+    def show_error_dialog(self, title, message):
+        """Show a modern Adwaita error dialog."""
+        dialog = Adw.AlertDialog(heading=title, body=message)
+        dialog.add_response("ok", "OK")
+        dialog.set_default_response("ok")
+        dialog.present(self.window)
 
     def update_playback_status_labels(self):
         if not self.animation or self.current_part_index >= len(self.animation.parts):
@@ -482,10 +521,11 @@ class BootAnimationPreviewerApp(Adw.Application):
         cr.fill()
 
         # Render frame
-        pixbuf = self.animation.get_frame_pixbuf(self.current_part_index, self.current_frame_index)
-        if pixbuf:
-            anim_w = self.animation.width or pixbuf.get_width()
-            anim_h = self.animation.height or pixbuf.get_height()
+        frame_data = self.animation.get_frame_surface(self.current_part_index, self.current_frame_index)
+        if frame_data:
+            surface, frame_w, frame_h = frame_data
+            anim_w = self.animation.width or frame_w
+            anim_h = self.animation.height or frame_h
 
             # Global Device Transform space
             cr.save()
@@ -495,36 +535,26 @@ class BootAnimationPreviewerApp(Adw.Application):
             # The logical animation canvas is ALWAYS rendered centered inside the device screen at 1:1 scale.
             # This ensures higher-density screens (like 1440x3200) naturally render the animation physically smaller
             # compared to lower-density screens (like 1080x2400), and larger animations are cropped correctly.
-            scale_anim = 1.0
-
-            anim_disp_w = anim_w * scale_anim
-            anim_disp_h = anim_h * scale_anim
-            
-            anim_x = (dev_w - anim_disp_w) / 2
-            anim_y = (dev_h - anim_disp_h) / 2
+            anim_x = (dev_w - anim_w) / 2
+            anim_y = (dev_h - anim_h) / 2
 
             cr.save()
             cr.translate(anim_x, anim_y)
-            cr.scale(scale_anim, scale_anim)
 
             part = self.animation.parts[self.current_part_index]
             
             if part['trims'] and self.current_frame_index < len(part['trims']):
                 trim = part['trims'][self.current_frame_index]
-                x_offset = trim['x']
-                y_offset = trim['y']
-                Gdk.cairo_set_source_pixbuf(cr, pixbuf, x_offset, y_offset)
+                cr.set_source_surface(surface, trim['x'], trim['y'])
                 cr.paint()
             else:
-                # Correctly stretch untrimmed files to the logical animation canvas
-                frame_w = pixbuf.get_width()
-                frame_h = pixbuf.get_height()
+                # Stretch untrimmed files to the logical animation canvas
                 frame_scale_x = anim_w / frame_w
                 frame_scale_y = anim_h / frame_h
                 
                 cr.save()
                 cr.scale(frame_scale_x, frame_scale_y)
-                Gdk.cairo_set_source_pixbuf(cr, pixbuf, 0, 0)
+                cr.set_source_surface(surface, 0, 0)
                 cr.paint()
                 cr.restore()
 

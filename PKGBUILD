@@ -1,4 +1,4 @@
-# Maintainer: hexman1999 <hexman1999@archlinux.org>
+# Maintainer: hexman1999@github
 pkgname=bootanimation-previewer
 pkgver=1.0.0
 pkgrel=1
@@ -24,7 +24,7 @@ sha256sums=('SKIP')
 
 prepare() {
     cd "$srcdir/$pkgname"
-    rm -rf .git .gitignore __pycache__ *.zip *.gif install.sh PKGBUILD
+    rm -rf .git .gitignore __pycache__ *.zip *.gif install.sh
 }
 
 package() {

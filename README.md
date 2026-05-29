@@ -2,17 +2,20 @@
 
 A GTK4/Libadwaita application for previewing and exporting Android `bootanimation.zip` files.
 
+Version **1.0.0**
+
 ## Features
 
 - **Preview** boot animations at original or device-mapped resolution
 - **Playback** with play/pause, stop, frame-by-frame navigation, and seekbar
+- **Hold-to-repeat** on prev/next frame buttons
 - **Speed control** — 0.5x, 1.0x, 1.5x, 2.0x
 - **Loop** entire animation or control per-part repeat count
 - **Export** to MP4 or GIF at any device preset resolution
 - **Device presets** for common phone, tablet, smartwatch, and foldable resolutions
 - **Custom viewport dimensions** (100–8000 px)
-- **File info dialog** with copy path and show-in-folder
-- **Player status bar** showing current part and frame
+- **File info dialog** with About, Shortcuts, copy path, and show-in-folder
+- **Player status bar** showing current part, frame, and logical position
 
 ## Dependencies
 
@@ -23,19 +26,47 @@ A GTK4/Libadwaita application for previewing and exporting Android `bootanimatio
 - `numpy`
 - `ffmpeg` (required only for GIF export)
 
-### Install system dependencies (Ubuntu/Debian)
+## Installation
+
+### Arch Linux
 
 ```bash
-sudo apt install libgtk-4-dev libadwaita-1-dev libgraphene-1.0-0 ffmpeg
+git clone https://github.com/hexman1999/bootanimation-previewer-gtk4.git
+cd bootanimation-previewer-gtk4
+makepkg -si
 ```
 
-### Install Python packages
+### Ubuntu / Debian
+
+```bash
+sudo apt install libgtk-4-dev libadwaita-1-dev libgraphene-1.0-0 ffmpeg python3-pip
+pip install -r requirements.txt
+python3 previewer.py
+```
+
+### Interactive installer (any distro)
+
+```bash
+chmod +x install.sh
+./install.sh
+```
+
+Choose local (user only, no root) or global (system-wide via sudo).
+
+### Manual
 
 ```bash
 pip install -r requirements.txt
+python3 previewer.py
 ```
 
 ## Usage
+
+```bash
+bootanimation-previewer
+```
+
+Or directly:
 
 ```bash
 python3 previewer.py
@@ -50,23 +81,23 @@ python3 previewer.py
 |---------|----------|-------------|
 | **Open Animation** | Header bar | Load a `bootanimation.zip` file |
 | **Export** | Header bar | Export as MP4 or GIF at selected resolution |
-| **Info** | Header bar | Show animation metadata (filename, path, resolution, FPS, parts, frames) |
+| **Info** | Header bar | About app, shortcuts, and animation metadata |
 | **Device Presets** | Header bar dropdown | Choose preview resolution preset |
 | **Play/Pause** | Control bar | Toggle playback |
 | **Stop** | Control bar | Stop and reset to first frame |
-| **Previous / Next** | Control bar | Step through frames |
+| **Previous / Next** | Control bar | Step through frames (hold for continuous) |
 | **Loop** | Control bar | Toggle entire-animation looping |
 | **Speed** | Control bar dropdown | Adjust playback speed |
 | **Seekbar** | Below canvas | Drag to seek through the animation |
-| **Status info** | Control bar toggle | Show/hide current part and frame number |
+| **Status info** | Control bar toggle | Show/hide current part, frame, and logical position |
 | **Repetitions** | Control bar spin button | Default loop count for parts with `count=0` in `desc.txt` |
 
 ### Keyboard Shortcuts
 
 | Key | Action |
 |-----|--------|
-| `O` | Open Animation |
-| `E` | Export |
+| `Ctrl+O` | Open Animation |
+| `Ctrl+E` | Export |
 | `I` | File Info |
 | `Space` | Play / Pause |
 | `S` | Stop |

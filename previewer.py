@@ -17,6 +17,8 @@ from gi.repository import GLib, Gio, Gtk, Gdk, GdkPixbuf, Adw, Pango
 import cv2
 import numpy
 
+APP_VERSION = "1.0.0"
+
 # Initialize Libadwaita
 Adw.init()
 
@@ -1069,6 +1071,9 @@ class BootAnimationPreviewerApp(Adw.Application):
         icon = Gtk.Image(icon_name=self.window.get_icon_name() or "phone")
         icon.set_pixel_size(256)
 
+        ver_lbl = Gtk.Label(label=f"Version {APP_VERSION}")
+        ver_lbl.add_css_class("heading")
+
         body_lbl = Gtk.Label(
             label="A GTK4/Libadwaita application for previewing and exporting Android bootanimation.zip files.\n\nCreated by Hexman1999 with vibe coding."
         )
@@ -1076,6 +1081,7 @@ class BootAnimationPreviewerApp(Adw.Application):
         body_lbl.set_xalign(0)
 
         about_box.append(icon)
+        about_box.append(ver_lbl)
         about_box.append(body_lbl)
         dialog.set_extra_child(about_box)
         dialog.add_response("ok", "OK")

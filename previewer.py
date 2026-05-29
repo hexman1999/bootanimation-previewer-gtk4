@@ -1067,7 +1067,7 @@ class BootAnimationPreviewerApp(Adw.Application):
         about_box.set_margin_end(12)
 
         icon = Gtk.Image(icon_name=self.window.get_icon_name() or "phone")
-        icon.set_pixel_size(64)
+        icon.set_pixel_size(256)
 
         body_lbl = Gtk.Label(
             label="A GTK4/Libadwaita application for previewing and exporting Android bootanimation.zip files.\n\nCreated by Hexman1999 with vibe coding."

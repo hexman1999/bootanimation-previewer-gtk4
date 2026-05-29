@@ -36,7 +36,7 @@ def pixbuf_to_surface(pixbuf):
 
 DEVICE_PRESETS = [
     {"name": "Original Animation", "width": None, "height": None},
-    {"name": "Phone (1080 × 2400) - 20:9 (Default)", "width": 1080, "height": 2400},
+    {"name": "Phone (1080 × 2400) - 20:9", "width": 1080, "height": 2400},
     {"name": "Phone (1080 × 1920) - 16:9", "width": 1080, "height": 1920},
     {"name": "Phone (1440 × 3200) - 20:9", "width": 1440, "height": 3200},
     {"name": "Phone (720 × 1280) - 16:9", "width": 720, "height": 1280},

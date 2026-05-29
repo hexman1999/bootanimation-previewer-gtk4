@@ -1,11 +1,9 @@
 <div align="left">
-  <img src="https://github.com/hexman1999/bootanimation-previewer-gtk4/blob/main/bootanimation-previewer.svg" alt="icon" width="48" align="left" style="margin-right: 12px"/>
-  <h1>Boot Animation Previewer</h1>
+ 
+  <h1> <img src="https://github.com/hexman1999/bootanimation-previewer-gtk4/blob/main/bootanimation-previewer.svg" alt="icon" width="128" align="left" style="margin-right: 12px"/><br>Boot Animation Previewer <br> <br><br></h1>
 </div>
+A GTK4/Libadwaita application for previewing and exporting Android bootanimation files.
 
-A GTK4/Libadwaita application for previewing and exporting Android `bootanimation.zip` files.
-
-Version **1.0.0**
 
 ## Features
 

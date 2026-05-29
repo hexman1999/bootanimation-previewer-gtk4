@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://github.com/hexman1999/bootanimation-previewer-gtk4/blob/main/bootanimation-previewer.svg" alt="icon" width="96"/>
+  <img src="https://github.com/hexman1999/bootanimation-previewer-gtk4/blob/main/bootanimation-previewer.svg" alt="icon" width="256"/>
 </p>
 
 <h1 align="center">Boot Animation Previewer</h1>

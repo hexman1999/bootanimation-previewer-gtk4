@@ -436,7 +436,7 @@ class BootAnimationPreviewerApp(Adw.Application):
         self.loop_limit_spin = Gtk.SpinButton(adjustment=adj, climb_rate=1.0, digits=0)
         self.loop_limit_spin.set_tooltip_text("Default loops for parts with 0 count")
         self.loop_limit_spin.connect("value-changed", self.on_loop_limit_changed)
-        control_bar.append(Gtk.Label(label="Repetitions:"))
+        control_bar.append(Gtk.Label(label="Repetitions of the loading loop:"))
         control_bar.append(self.loop_limit_spin)
 
         return main_box

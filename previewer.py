@@ -204,8 +204,8 @@ class BootAnimationPreviewerApp(Adw.Application):
         # Infinite part loop limit configuration
         self.infinite_part_loop_limit = 5
         
-        # Selected Device Preset index (default to index 1: Phone 1080 x 2400)
-        self.selected_preset_index = 1
+        # Selected Device Preset index (default to index 0: "Original Animation")
+        self.selected_preset_index = 0
         
         # Playback state
         self.current_part_index = 0

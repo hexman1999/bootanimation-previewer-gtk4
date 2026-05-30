@@ -8,15 +8,23 @@ on:
       build_deb:
         description: Build .deb package
         type: boolean
-        default: false
+        default: true
       build_rpm:
         description: Build .rpm package
         type: boolean
-        default: false
+        default: true
       build_appimage:
         description: Build AppImage
         type: boolean
         default: true
+      release_type:
+        description: What to do with the build
+        type: choice
+        options:
+          - Keep only in Actions
+          - Create Release
+          - Create Pre-release
+        default: "Keep only in Actions"
 
 env:
   APP: bootanimation-previewer
@@ -25,6 +33,8 @@ jobs:
   deb:
     if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.build_deb)
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - name: Install fpm
@@ -51,10 +61,20 @@ jobs:
         with:
           name: ${{ env.APP }}-deb
           path: "*.deb"
+      - name: Upload to release (manual)
+        if: github.event_name == 'workflow_dispatch' && inputs.release_type != 'Keep only in Actions'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.run_number }}
+          name: Build ${{ github.run_number }}
+          prerelease: ${{ inputs.release_type == 'Create Pre-release' }}
+          files: "*.deb"
 
   rpm:
     if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.build_rpm)
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - name: Install fpm
@@ -81,22 +101,30 @@ jobs:
         with:
           name: ${{ env.APP }}-rpm
           path: "*.rpm"
+      - name: Upload to release (manual)
+        if: github.event_name == 'workflow_dispatch' && inputs.release_type != 'Keep only in Actions'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.run_number }}
+          name: Build ${{ github.run_number }}
+          prerelease: ${{ inputs.release_type == 'Create Pre-release' }}
+          files: "*.rpm"
 
   appimage:
     if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.build_appimage)
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
       - name: Install system dependencies
         run: |
           sudo apt update
           sudo apt install -y \
+            python3-pip python3-venv \
             libgirepository1.0-dev libcairo2-dev \
             libgtk-4-dev libadwaita-1-dev libgraphene-1.0-dev \
-            python3-venv file wget
+            file wget
       - name: Build AppDir
         run: |
           set -eux
@@ -108,7 +136,10 @@ jobs:
                    "$APPDIR/usr/share/icons/hicolor/scalable/apps" \
                    "$APPDIR/usr/lib/girepository-1.0"
 
-          pip install -r requirements.txt --target="$APPDIR/$PYTHON_LIB" --no-user
+          # ensure pkg-config finds system .pc files (girepository-2.0 etc.)
+          export PKG_CONFIG_PATH="/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/lib/pkgconfig"
+          python3 -m pip install -r requirements.txt \
+            --target="$APPDIR/$PYTHON_LIB" --no-user
 
           cp previewer.py "$APPDIR/usr/bin/$APP"
           chmod 755 "$APPDIR/usr/bin/$APP"
@@ -124,8 +155,6 @@ jobs:
           APPDIR="${{ runner.temp }}/AppDir"
           BUNDLE="$APPDIR/usr/lib"
 
-          # Collect all ELF files in the AppDir and copy every unique
-          # shared library dependency into the bundle directory.
           find "$APPDIR" -type f \( -name "*.so*" -o -executable \) | while read -r f; do
             ldd "$f" 2>/dev/null | sed -n 's/.*=> \([^ ]*\) .*/\1/p' || true
           done | sort -u | while read -r lib; do
@@ -178,6 +207,15 @@ jobs:
         with:
           name: ${{ env.APP }}-appimage
           path: "*.AppImage"
+
+      - name: Upload to release (manual)
+        if: github.event_name == 'workflow_dispatch' && inputs.release_type != 'Keep only in Actions'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.run_number }}
+          name: Build ${{ github.run_number }}
+          prerelease: ${{ inputs.release_type == 'Create Pre-release' }}
+          files: "*.AppImage"
 
   upload-release:
     if: github.event_name == 'release'

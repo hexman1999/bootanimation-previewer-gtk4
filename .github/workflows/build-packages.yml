@@ -141,32 +141,13 @@ jobs:
           python3 -m pip install opencv-python numpy \
             --target="$APPDIR/$PYTHON_LIB" --no-user
 
-          # copy system PyGObject + pycairo using Python's own module resolution
-          python3 -c "
-import sys, shutil, importlib
-sys.path.insert(0, '/usr/lib/python3/dist-packages')
-
-target = '$APPDIR/$PYTHON_LIB'
-
-for mod_name in ('gi', 'cairo'):
-    spec = importlib.util.find_spec(mod_name)
-    if spec is None:
-        print(f'ERROR: {mod_name} not found on system')
-        sys.exit(1)
-
-    if spec.submodule_search_locations:
-        src = spec.submodule_search_locations[0]
-        shutil.copytree(src, f'{target}/{mod_name}', symlinks=False, dirs_exist_ok=True)
-        import os
-        for f in os.listdir(f'{target}/{mod_name}'):
-            print(f'  Copied {mod_name}/{f}')
-    else:
-        src = spec.origin
-        shutil.copy2(src, target)
-        print(f'  Copied {mod_name} ({src})')
-
-    print(f'OK  {mod_name} -> {target}')
-"
+          # copy system PyGObject + pycairo using Python module resolution
+          for mod in gi cairo; do
+            src=$(python3 -c 'import '"${mod}"', os; print(os.path.dirname('"${mod}"'.__file__))')
+            cp -rL "$src" "$APPDIR/$PYTHON_LIB/"
+            echo "Copied $mod:"
+            ls -la "$APPDIR/$PYTHON_LIB/$mod/"
+          done
 
       - name: Verify AppDir — all imports work
         run: |
@@ -175,20 +156,7 @@ for mod_name in ('gi', 'cairo'):
           export PYTHONPATH="$APPDIR/usr/lib/python3.12/site-packages"
           export GI_TYPELIB_PATH="/usr/lib/x86_64-linux-gnu/girepository-1.0"
 
-          python3 -c "
-import gi
-gi.require_version('Gtk', '4.0')
-gi.require_version('Adw', '1')
-from gi.repository import Gtk, Adw
-import cairo
-print('>>> AppDir verification: gi, Gtk, Adw, cairo imports OK')
-
-import cv2
-print('>>> AppDir verification: cv2 OK')
-
-import numpy
-print('>>> AppDir verification: numpy OK')
-"
+          python3 -c "import gi, cairo, cv2, numpy; gi.require_version('Gtk','4.0'); gi.require_version('Adw','1'); from gi.repository import Gtk, Adw; print('AppDir: all imports OK')"
 
       - name: Build AppDir — copy app files
         run: |
@@ -265,14 +233,7 @@ print('>>> AppDir verification: numpy OK')
           export GI_TYPELIB_PATH="$APPDIR/usr/lib/girepository-1.0"
           export LD_LIBRARY_PATH="$APPDIR/usr/lib"
 
-          python3 -c "
-import gi
-gi.require_version('Gtk', '4.0')
-gi.require_version('Adw', '1')
-from gi.repository import Gtk, Adw
-import cairo
-print('>>> AppDir final verification: all imports OK')
-"
+          python3 -c "import gi, cairo; gi.require_version('Gtk','4.0'); gi.require_version('Adw','1'); from gi.repository import Gtk, Adw; print('AppDir bundled: all imports OK')"
 
       - name: Package AppImage
         if: success()

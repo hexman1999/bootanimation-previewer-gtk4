@@ -238,12 +238,17 @@ class BootAnimationPreviewerApp(Adw.Application):
     def _set_app_icon(self):
         script_dir = os.path.dirname(os.path.abspath(__file__))
         svg_path = os.path.join(script_dir, "Resources", "bootanimation-previewer.svg")
-        if os.path.exists(svg_path):
-            icon = Gio.FileIcon.new(Gio.File.new_for_path(svg_path))
-            self.set_icon(icon)
-            return
         theme = Gtk.IconTheme.get_for_display(Gdk.Display.get_default())
-        if theme.has_icon("bootanimation-previewer"):
+        if os.path.exists(svg_path):
+            apps_dir = os.path.join(script_dir, "Resources", "scalable", "apps")
+            link_path = os.path.join(apps_dir, "bootanimation-previewer.svg")
+            if not os.path.exists(link_path):
+                os.makedirs(apps_dir, exist_ok=True)
+                rel = os.path.relpath(svg_path, apps_dir)
+                os.symlink(rel, link_path)
+            theme.add_search_path(os.path.join(script_dir, "Resources"))
+            self.window.set_icon_name("bootanimation-previewer")
+        elif theme.has_icon("bootanimation-previewer"):
             self.window.set_icon_name("bootanimation-previewer")
         else:
             self.window.set_icon_name("phone")

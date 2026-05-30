@@ -158,9 +158,15 @@ jobs:
           APPDIR="${{ runner.temp }}/AppDir"
           BUNDLE="$APPDIR/usr/lib"
 
+          # never bundle glibc, ld-linux, libstdc++ — must come from the host
+          exclude='libc\.so|libm\.so|libpthread\.so|libdl\.so|librt\.so|libutil\.so'
+          exclude="$exclude|libresolv\.so|libnss_|ld-linux|ld-\.so|libcrypt\.so"
+          exclude="$exclude|libanl\.so|libBrokenLocale|libcidn|libthread_db"
+          exclude="$exclude|libstdc\+\+\.so|libgcc_s\.so"
+
           find "$APPDIR" -type f \( -name "*.so*" -o -executable \) | while read -r f; do
             ldd "$f" 2>/dev/null | sed -n 's/.*=> \([^ ]*\) .*/\1/p' || true
-          done | sort -u | while read -r lib; do
+          done | sort -u | grep -Ev "$exclude" | while read -r lib; do
             [ -f "$lib" ] && cp -nL "$lib" "$BUNDLE/" 2>/dev/null || true
           done
 

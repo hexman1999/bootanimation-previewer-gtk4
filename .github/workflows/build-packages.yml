@@ -127,32 +127,49 @@ jobs:
             libgtk-4-dev libadwaita-1-dev libgraphene-1.0-dev \
             file wget
 
-      - name: Discover and copy system Python modules
+      - name: Build bundled Python venv
         run: |
           set -eux
           APPDIR="${{ runner.temp }}/AppDir"
-          PYTHON_LIB="usr/lib/python3.12/site-packages"
-          mkdir -p "$APPDIR/$PYTHON_LIB" "$APPDIR/usr/bin" \
+          VENV="$APPDIR/usr/lib/python-venv"
+          PYTHON_LIB="lib/python3.12/site-packages"
+
+          mkdir -p "$APPDIR/usr/lib" "$APPDIR/usr/bin" \
                    "$APPDIR/usr/share/applications" \
                    "$APPDIR/usr/share/icons/hicolor/scalable/apps" \
                    "$APPDIR/usr/lib/girepository-1.0"
 
-          # install wheel-only deps via pip (pycairo is a pre-built wheel, no compilation needed)
-          python3 -m pip install opencv-python numpy pycairo \
-            --target="$APPDIR/$PYTHON_LIB" --no-user
+          # Create a venv inside the AppDir (bundles Python interpreter & stdlib)
+          # --copies makes real file copies (not symlinks) so Python works on other systems
+          python3 -m venv --copies "$VENV"
 
-          # copy system PyGObject (needs girepository-2.0.pc to compile, so use system copy)
+          # Install wheel-only deps into the venv
+          "$VENV/bin/python3" -m pip install --no-user \
+            opencv-python numpy pycairo 2>&1
+
+          # PyGObject cannot be pip-installed (needs girepository-2.0.pc at compile time),
+          # so copy it from the system into the venv
           src=$(python3 -c 'import gi, os; print(os.path.dirname(gi.__file__))')
-          cp -rL "$src" "$APPDIR/$PYTHON_LIB/"
+          cp -rL "$src" "$VENV/$PYTHON_LIB/"
           echo "Copied gi:"
-          ls -la "$APPDIR/$PYTHON_LIB/gi/"
+          ls -la "$VENV/$PYTHON_LIB/gi/"
+
+          # Force reinstall pycairo to guarantee _cairo C extension lands in venv
+          "$VENV/bin/python3" -m pip install --force-reinstall --no-deps pycairo 2>&1
+
+          echo "=== cairo/ in venv ==="
+          ls -la "$VENV/$PYTHON_LIB/cairo/"
+
+          # Verify _cairo loads from within the venv
+          "$VENV/bin/python3" -c "import cairo._cairo; print('_cairo OK:', cairo._cairo.__file__)"
 
       - name: Verify AppDir — all imports work
         run: |
           set -eux
           APPDIR="${{ runner.temp }}/AppDir"
-          export PYTHONPATH="$APPDIR/usr/lib/python3.12/site-packages"
+          VENV_PYTHON="$APPDIR/usr/lib/python-venv/bin/python3"
           export GI_TYPELIB_PATH="/usr/lib/x86_64-linux-gnu/girepository-1.0"
+          export LD_LIBRARY_PATH="$APPDIR/usr/lib"
 
           export APPDIR
           cat > /tmp/verify.py << 'PYEOF'
@@ -167,13 +184,13 @@ jobs:
               print('{}: {}'.format(mod.__name__, f))
           print('AppDir: all imports OK')
           PYEOF
-          python3 /tmp/verify.py
+          "$VENV_PYTHON" /tmp/verify.py
 
       - name: Build AppDir — copy app files
         run: |
           set -eux
           APPDIR="${{ runner.temp }}/AppDir"
-          PYTHON_LIB="usr/lib/python3.12/site-packages"
+          VENV="$APPDIR/usr/lib/python-venv"
 
           cp previewer.py "$APPDIR/usr/bin/$APP"
           chmod 755 "$APPDIR/usr/bin/$APP"
@@ -182,6 +199,9 @@ jobs:
 
           cp /usr/lib/x86_64-linux-gnu/girepository-1.0/*.typelib \
              "$APPDIR/usr/lib/girepository-1.0/"
+
+          # Ensure the venv Python can find the bundled typelibs
+          echo "$APPDIR/usr/lib/girepository-1.0" > "$VENV/lib/python3.12/site-packages/gi_typelib_path.pth" 2>/dev/null || true
 
       - name: Bundle shared libraries
         run: |
@@ -208,8 +228,11 @@ jobs:
           HERE="$(dirname "$(readlink -f "$0")")"
           export GI_TYPELIB_PATH="$HERE/usr/lib/girepository-1.0"
           export LD_LIBRARY_PATH="$HERE/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-          export PYTHONPATH="$HERE/usr/lib/python3.12/site-packages${PYTHONPATH:+:$PYTHONPATH}"
-          exec "$HERE/usr/bin/bootanimation-previewer" "$@"
+          PYTHON="$HERE/usr/lib/python-venv/bin/python3"
+          if [ ! -x "$PYTHON" ]; then
+              PYTHON="python3"
+          fi
+          exec "$PYTHON" "$HERE/usr/bin/bootanimation-previewer" "$@"
           RUNEOF
           chmod +x "$APPDIR/AppRun"
 
@@ -238,7 +261,7 @@ jobs:
         run: |
           set -eux
           APPDIR="${{ runner.temp }}/AppDir"
-          export PYTHONPATH="$APPDIR/usr/lib/python3.12/site-packages"
+          VENV_PYTHON="$APPDIR/usr/lib/python-venv/bin/python3"
           export GI_TYPELIB_PATH="$APPDIR/usr/lib/girepository-1.0"
           export LD_LIBRARY_PATH="$APPDIR/usr/lib"
 
@@ -255,18 +278,19 @@ jobs:
               print('{}: {}'.format(mod.__name__, f))
           print('AppDir bundled: all imports OK')
           PYEOF
-          python3 /tmp/verify2.py
+          "$VENV_PYTHON" /tmp/verify2.py
 
       - name: Debug — list cairo/ contents before packaging
         run: |
           set -x
-          echo "=== cairo/ in AppDir ==="
-          find "${{ runner.temp }}/AppDir/usr/lib/python3.12/site-packages/cairo/" -type f
-          echo "=== _cairo files anywhere in AppDir ==="
-          find "${{ runner.temp }}/AppDir" -name "_cairo*" 2>/dev/null || echo "(none found)"
-          echo "=== test import cairo._cairo ==="
-          PYTHONPATH="${{ runner.temp }}/AppDir/usr/lib/python3.12/site-packages" \
-          python3 -c "import cairo, cairo._cairo; print('cairo:', cairo.__file__, ' _cairo:', cairo._cairo.__file__)"
+          APPDIR="${{ runner.temp }}/AppDir"
+          VENV_C="$APPDIR/usr/lib/python-venv/lib/python3.12/site-packages/cairo"
+          echo "=== cairo/ in venv ==="
+          find "$VENV_C" -type f 2>/dev/null || echo "(not at old path)"
+          echo "=== cairo/ anywhere in AppDir ==="
+          find "$APPDIR" -path "*/cairo/_cairo*" -type f 2>/dev/null || echo "(none found)"
+          echo "=== test import cairo._cairo via venv ==="
+          "$APPDIR/usr/lib/python-venv/bin/python3" -c "import cairo._cairo; print('_cairo OK:', cairo._cairo.__file__)"
 
       - name: Package AppImage
         if: success()
@@ -289,10 +313,10 @@ jobs:
           echo "=== cairo/ inside AppImage ==="
           find squashfs-root -path "*/cairo/_cairo*" -type f
           echo "=== all files in cairo/ ==="
-          ls -la squashfs-root/usr/lib/python3.12/site-packages/cairo/
-          echo "=== test import from AppImage ==="
-          PYTHONPATH="$PWD/squashfs-root/usr/lib/python3.12/site-packages" \
-          python3 -c "import cairo, cairo._cairo; print('OK _cairo:', cairo._cairo.__file__)"
+          find squashfs-root -path "*/cairo/" -type d -exec ls -la {} \;
+          echo "=== test import via venv Python from AppImage ==="
+          squashfs-root/usr/lib/python-venv/bin/python3 -c \
+            "import cairo._cairo; print('OK _cairo:', cairo._cairo.__file__)"
 
       - uses: actions/upload-artifact@v4
         if: success()

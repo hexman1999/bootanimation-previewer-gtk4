@@ -259,11 +259,22 @@ jobs:
           PYEOF
           python3 /tmp/verify2.py
 
+      - name: Debug — list cairo/ contents before packaging
+        run: |
+          set -x
+          echo "=== cairo/ in AppDir ==="
+          find "${{ runner.temp }}/AppDir/usr/lib/python3.12/site-packages/cairo/" -type f
+          echo "=== _cairo files anywhere in AppDir ==="
+          find "${{ runner.temp }}/AppDir" -name "_cairo*" 2>/dev/null || echo "(none found)"
+          echo "=== test import cairo._cairo ==="
+          PYTHONPATH="${{ runner.temp }}/AppDir/usr/lib/python3.12/site-packages" \
+          python3 -c "import cairo, cairo._cairo; print('cairo:', cairo.__file__, ' _cairo:', cairo._cairo.__file__)"
+
       - name: Package AppImage
         if: success()
         run: |
           cd /tmp
-          wget -q "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage" \
+          wget -q "https://github.com/AppImage/AppImageKit/releases/download/13/appimagetool-x86_64.AppImage" \
             -O appimagetool
           chmod +x appimagetool
           ./appimagetool --appimage-extract

@@ -218,6 +218,17 @@ jobs:
             [ -f "$lib" ] && cp -nL "$lib" "$BUNDLE/" 2>/dev/null || true
           done
 
+          # Also bundle shared libraries that GI loads dynamically at runtime
+          # (these are not captured by ldd on static deps)
+          for lib in libgio-2.0.so.0 libglib-2.0.so.0 libgobject-2.0.so.0 \
+                     libgmodule-2.0.so.0 libgtk-4.so.1 libadwaita-1.so.0 \
+                     libgdk_pixbuf-2.0.so.0 libpango-1.0.so.0 \
+                     libpangocairo-1.0.so.0 libcairo.so.2 libcairo-gobject.so.2 \
+                     libgraphene-1.0.so.0 libffi.so.8; do
+            f=$(ldconfig -p 2>/dev/null | grep -m1 "$lib" | awk '{print $NF}')
+            [ -n "$f" ] && cp -nL "$f" "$BUNDLE/" 2>/dev/null || true
+          done
+
       - name: Create AppRun
         run: |
           APPDIR="${{ runner.temp }}/AppDir"

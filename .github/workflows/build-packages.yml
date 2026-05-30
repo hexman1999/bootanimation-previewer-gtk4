@@ -228,9 +228,7 @@ jobs:
           Categories=Graphics;
           EOF
 
-          mkdir -p "$APPDIR/usr/share/metainfo"
-          cp Resources/org.bootanimation_previewer.appdata.xml \
-             "$APPDIR/usr/share/metainfo/"
+
 
           ln -sf usr/share/applications/org.bootanimation_previewer.desktop "$APPDIR/"
           ln -sf usr/share/icons/hicolor/scalable/apps/bootanimation-previewer.svg \
@@ -274,11 +272,11 @@ jobs:
         if: success()
         run: |
           cd /tmp
-          wget -q "https://github.com/AppImage/AppImageKit/releases/download/13/appimagetool-x86_64.AppImage" \
+          wget -q "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage" \
             -O appimagetool
           chmod +x appimagetool
           ./appimagetool --appimage-extract
-          ./squashfs-root/AppRun --no-appstream "${{ runner.temp }}/AppDir" \
+          ./squashfs-root/AppRun "${{ runner.temp }}/AppDir" \
             "${{ github.workspace }}/${{ env.APP }}-x86_64.AppImage"
 
       - name: Debug — verify _cairo.so inside the AppImage

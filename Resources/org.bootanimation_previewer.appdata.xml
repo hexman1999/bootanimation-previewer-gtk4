@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>org.bootanimation_previewer</id>
+  <name>Boot Animation Previewer</name>
+  <summary>Preview and export Android bootanimation.zip files</summary>
+  <metadata_license>FSFAP</metadata_license>
+  <project_license>GPL-3.0</project_license>
+  <url type="homepage">https://github.com/hexman1999/bootanimation-previewer-gtk4</url>
+  <description>
+    <p>A GTK4-based tool for previewing and exporting Android bootanimation.zip files.</p>
+  </description>
+</component>

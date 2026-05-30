@@ -237,7 +237,7 @@ class BootAnimationPreviewerApp(Adw.Application):
 
     def _set_app_icon(self):
         script_dir = os.path.dirname(os.path.abspath(__file__))
-        svg_path = os.path.join(script_dir, "bootanimation-previewer.svg")
+        svg_path = os.path.join(script_dir, "Resources/bootanimation-previewer.svg")
         theme = Gtk.IconTheme.get_for_display(Gdk.Display.get_default())
         if os.path.exists(svg_path):
             theme.add_search_path(script_dir)

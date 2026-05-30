@@ -251,7 +251,27 @@ jobs:
           Categories=Graphics;
           EOF
 
-
+          mkdir -p "$APPDIR/usr/share/metainfo"
+          cat > "$APPDIR/usr/share/metainfo/org.bootanimation_previewer.appdata.xml" << EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <component type="desktop-application">
+            <id>org.bootanimation_previewer</id>
+            <name>Boot Animation Previewer</name>
+            <summary>Preview and export Android bootanimation.zip files</summary>
+            <metadata_license>CC0-1.0</metadata_license>
+            <project_license>GPL-3.0</project_license>
+            <description>
+              <p>A GTK4/Libadwaita application for previewing and exporting Android bootanimation.zip files.</p>
+            </description>
+            <url type="homepage">https://github.com/hexman1999/bootanimation-previewer-gtk4</url>
+            <screenshots>
+              <screenshot type="default">
+                <image>https://raw.githubusercontent.com/hexman1999/bootanimation-previewer-gtk4/main/Resources/bootanimation-previewer.svg</image>
+              </screenshot>
+            </screenshots>
+            <launchable type="desktop-id">org.bootanimation_previewer.desktop</launchable>
+          </component>
+          EOF
 
           ln -sf usr/share/applications/org.bootanimation_previewer.desktop "$APPDIR/"
           ln -sf usr/share/icons/hicolor/scalable/apps/bootanimation-previewer.svg \

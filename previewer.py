@@ -192,7 +192,7 @@ class BootAnimation:
 
 class BootAnimationPreviewerApp(Adw.Application):
     def __init__(self):
-        super().__init__(application_id="org.hexman1999.bootanimation_previewer",
+        super().__init__(application_id="org.antigravity.bootanimation_previewer",
                          flags=Gio.ApplicationFlags.FLAGS_NONE)
         
         self.animation = None

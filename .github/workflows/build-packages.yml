@@ -214,7 +214,7 @@ jobs:
           Icon=bootanimation-previewer
           Terminal=false
           Type=Application
-          Categories=Graphics;Utility;
+          Categories=Graphics;
           EOF
 
           mkdir -p "$APPDIR/usr/share/metainfo"
@@ -243,7 +243,7 @@ jobs:
             -O appimagetool
           chmod +x appimagetool
           ./appimagetool --appimage-extract
-          ./squashfs-root/AppRun "${{ runner.temp }}/AppDir" \
+          ./squashfs-root/AppRun --no-appstream "${{ runner.temp }}/AppDir" \
             "${{ github.workspace }}/${{ env.APP }}-x86_64.AppImage"
 
       - uses: actions/upload-artifact@v4

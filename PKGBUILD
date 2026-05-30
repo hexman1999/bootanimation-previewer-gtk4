@@ -32,7 +32,7 @@ package() {
 
     install -Dm755 previewer.py "$pkgdir/usr/bin/bootanimation-previewer"
 
-    install -Dm644 bootanimation-previewer.svg \
+    install -Dm644 Resources/bootanimation-previewer.svg \
         "$pkgdir/usr/share/icons/hicolor/scalable/apps/bootanimation-previewer.svg"
 
     install -Dm644 /dev/stdin "$pkgdir/usr/share/applications/org.antigravity.bootanimation_previewer.desktop" << EOF

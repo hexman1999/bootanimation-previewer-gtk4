@@ -31,7 +31,7 @@ do_install() {
 
     echo "Installing icon..."
     mkdir -p "$icon"
-    cp "$SCRIPT_DIR/bootanimation-previewer.svg" "$icon/bootanimation-previewer.svg"
+    cp "$SCRIPT_DIR/Resources/bootanimation-previewer.svg" "$icon/bootanimation-previewer.svg"
 
     echo "Installing desktop entry..."
     mkdir -p "$desc"

@@ -46,7 +46,19 @@ makepkg -si
 ### Ubuntu / Debian
 
 ```bash
-sudo apt install libgtk-4-dev libadwaita-1-dev libgraphene-1.0-0 ffmpeg python3-pip
+git clone https://github.com/hexman1999/bootanimation-previewer-gtk4.git
+cd bootanimation-previewer-gtk4
+sudo apt install python3-pip libgirepository1.0-dev libcairo2-dev libgtk-4-dev libadwaita-1-dev ffmpeg
+pip install -r requirements.txt
+python3 previewer.py
+```
+
+### Fedora
+
+```bash
+git clone https://github.com/hexman1999/bootanimation-previewer-gtk4.git
+cd bootanimation-previewer-gtk4
+sudo dnf install python3-pip python3-devel cairo-devel gtk4-devel libadwaita-devel gobject-introspection-devel ffmpeg
 pip install -r requirements.txt
 python3 previewer.py
 ```

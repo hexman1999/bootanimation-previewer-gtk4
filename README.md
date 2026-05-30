@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="bootanimation-previewer.svg" alt="icon" width="256"/>
+  <img src="Resources/bootanimation-previewer.svg" alt="icon" width="256"/>
 </p>
 
 <h1 align="center">Boot Animation Previewer</h1>
@@ -81,7 +81,7 @@ python3 previewer.py
 
 ### Interface
 
-<img width="1130" alt="image" src="https://github.com/user-attachments/assets/315aff56-eb99-4763-b2a9-db6b3e45fc10" />
+<img width="1130" alt="image" src="Resources/Screenshot1.png" />
 
 
 | Control | Location | Description |

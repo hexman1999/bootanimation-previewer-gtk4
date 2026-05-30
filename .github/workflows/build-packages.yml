@@ -137,17 +137,15 @@ jobs:
                    "$APPDIR/usr/share/icons/hicolor/scalable/apps" \
                    "$APPDIR/usr/lib/girepository-1.0"
 
-          # install wheel-only deps via pip
-          python3 -m pip install opencv-python numpy \
+          # install wheel-only deps via pip (pycairo is a pre-built wheel, no compilation needed)
+          python3 -m pip install opencv-python numpy pycairo \
             --target="$APPDIR/$PYTHON_LIB" --no-user
 
-          # copy system PyGObject + pycairo using Python module resolution
-          for mod in gi cairo; do
-            src=$(python3 -c 'import '"${mod}"', os; print(os.path.dirname('"${mod}"'.__file__))')
-            cp -rL "$src" "$APPDIR/$PYTHON_LIB/"
-            echo "Copied $mod:"
-            ls -la "$APPDIR/$PYTHON_LIB/$mod/"
-          done
+          # copy system PyGObject (needs girepository-2.0.pc to compile, so use system copy)
+          src=$(python3 -c 'import gi, os; print(os.path.dirname(gi.__file__))')
+          cp -rL "$src" "$APPDIR/$PYTHON_LIB/"
+          echo "Copied gi:"
+          ls -la "$APPDIR/$PYTHON_LIB/gi/"
 
       - name: Verify AppDir — all imports work
         run: |
@@ -156,7 +154,19 @@ jobs:
           export PYTHONPATH="$APPDIR/usr/lib/python3.12/site-packages"
           export GI_TYPELIB_PATH="/usr/lib/x86_64-linux-gnu/girepository-1.0"
 
-          python3 -c "import gi, cairo, cv2, numpy; gi.require_version('Gtk','4.0'); gi.require_version('Adw','1'); from gi.repository import Gtk, Adw; print('AppDir: all imports OK')"
+          cat > /tmp/verify.py << 'PYEOF'
+          import gi, cairo, cv2, numpy, os
+          gi.require_version('Gtk', '4.0')
+          gi.require_version('Adw', '1')
+          from gi.repository import Gtk, Adw
+          for mod in (gi, cairo):
+              f = mod.__file__ or mod.__path__[0]
+              assert os.environ['APPDIR'] in f, \
+                  '{} loaded from {} -- not AppDir!'.format(mod.__name__, f)
+              print('{}: {}'.format(mod.__name__, f))
+          print('AppDir: all imports OK')
+          PYEOF
+          python3 /tmp/verify.py
 
       - name: Build AppDir — copy app files
         run: |
@@ -233,7 +243,19 @@ jobs:
           export GI_TYPELIB_PATH="$APPDIR/usr/lib/girepository-1.0"
           export LD_LIBRARY_PATH="$APPDIR/usr/lib"
 
-          python3 -c "import gi, cairo; gi.require_version('Gtk','4.0'); gi.require_version('Adw','1'); from gi.repository import Gtk, Adw; print('AppDir bundled: all imports OK')"
+          cat > /tmp/verify2.py << 'PYEOF'
+          import gi, cairo, os
+          gi.require_version('Gtk', '4.0')
+          gi.require_version('Adw', '1')
+          from gi.repository import Gtk, Adw
+          for mod in (gi, cairo):
+              f = mod.__file__ or mod.__path__[0]
+              assert os.environ['APPDIR'] in f, \
+                  '{} loaded from {} -- not AppDir!'.format(mod.__name__, f)
+              print('{}: {}'.format(mod.__name__, f))
+          print('AppDir bundled: all imports OK')
+          PYEOF
+          python3 /tmp/verify2.py
 
       - name: Package AppImage
         if: success()

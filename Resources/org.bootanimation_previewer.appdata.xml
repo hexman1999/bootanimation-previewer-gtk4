@@ -6,7 +6,15 @@
   <metadata_license>FSFAP</metadata_license>
   <project_license>GPL-3.0</project_license>
   <url type="homepage">https://github.com/hexman1999/bootanimation-previewer-gtk4</url>
+  <launchable type="desktop-id">org.bootanimation_previewer.desktop</launchable>
+  <developer id="io.github.hexman1999">
+    <name>Hexman</name>
+  </developer>
   <description>
-    <p>A GTK4-based tool for previewing and exporting Android bootanimation.zip files.</p>
+    <p>A GTK4-based graphical tool for previewing, testing, and exporting Android boot animation ZIP files. It supports frame-by-frame playback, real-time scaling, and conversion to video formats via FFmpeg.</p>
   </description>
+  <content_rating type="oars-1.1" />
+  <releases>
+    <release version="1.0.0" date="2026-05-30" />
+  </releases>
 </component>

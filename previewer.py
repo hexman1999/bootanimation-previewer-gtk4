@@ -240,7 +240,7 @@ class BootAnimationPreviewerApp(Adw.Application):
         svg_path = os.path.join(script_dir, "Resources", "bootanimation-previewer.svg")
         if os.path.exists(svg_path):
             icon = Gio.FileIcon.new(Gio.File.new_for_path(svg_path))
-            self.window.set_icon(icon)
+            self.set_icon(icon)
             return
         theme = Gtk.IconTheme.get_for_display(Gdk.Display.get_default())
         if theme.has_icon("bootanimation-previewer"):

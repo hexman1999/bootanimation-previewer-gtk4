@@ -35,7 +35,7 @@ package() {
     install -Dm644 Resources/bootanimation-previewer.svg \
         "$pkgdir/usr/share/icons/hicolor/scalable/apps/bootanimation-previewer.svg"
 
-    install -Dm644 /dev/stdin "$pkgdir/usr/share/applications/org.antigravity.bootanimation_previewer.desktop" << EOF
+    install -Dm644 /dev/stdin "$pkgdir/usr/share/applications/org.bootanimation_previewer.desktop" << EOF
 [Desktop Entry]
 Name=Boot Animation Previewer
 Comment=Preview and export Android bootanimation.zip files
@@ -44,7 +44,7 @@ Icon=bootanimation-previewer
 Terminal=false
 Type=Application
 Categories=Graphics;Utility;
-StartupWMClass=org.antigravity.bootanimation_previewer
+StartupWMClass=org.bootanimation_previewer
 EOF
 
     install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"

@@ -18,7 +18,7 @@ GLOBAL_DESC="/usr/local/share/applications"
 
 detect_installed() {
     local dirs=("$1" "$2" "$3")
-    [[ -f "${dirs[0]}/bootanimation-previewer" || -f "${dirs[1]}/bootanimation-previewer.svg" || -f "${dirs[2]}/org.antigravity.bootanimation_previewer.desktop" ]]
+    [[ -f "${dirs[0]}/bootanimation-previewer" || -f "${dirs[1]}/bootanimation-previewer.svg" || -f "${dirs[2]}/org.bootanimation_previewer.desktop" ]]
 }
 
 do_install() {
@@ -35,7 +35,7 @@ do_install() {
 
     echo "Installing desktop entry..."
     mkdir -p "$desc"
-    cat > "$desc/org.antigravity.bootanimation_previewer.desktop" << EOF
+    cat > "$desc/org.bootanimation_previewer.desktop" << EOF
 [Desktop Entry]
 Name=Boot Animation Previewer
 Comment=Preview and export Android bootanimation.zip files
@@ -44,7 +44,7 @@ Icon=bootanimation-previewer
 Terminal=false
 Type=Application
 Categories=Graphics;Utility;
-StartupWMClass=org.antigravity.bootanimation_previewer
+StartupWMClass=org.bootanimation_previewer
 EOF
 
     echo "Updating desktop database..."
@@ -77,9 +77,9 @@ do_uninstall() {
         removed=true
     fi
 
-    if [[ -f "$desc/org.antigravity.bootanimation_previewer.desktop" ]]; then
-        rm "$desc/org.antigravity.bootanimation_previewer.desktop"
-        echo "  Removed: $desc/org.antigravity.bootanimation_previewer.desktop"
+    if [[ -f "$desc/org.bootanimation_previewer.desktop" ]]; then
+        rm "$desc/org.bootanimation_previewer.desktop"
+        echo "  Removed: $desc/org.bootanimation_previewer.desktop"
         removed=true
     fi
 

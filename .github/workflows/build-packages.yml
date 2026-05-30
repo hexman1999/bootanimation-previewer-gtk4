@@ -180,7 +180,7 @@ jobs:
       - name: Create desktop entry and top-level links
         run: |
           APPDIR="${{ runner.temp }}/AppDir"
-          cat > "$APPDIR/org.bootanimation_previewer.desktop" << EOF
+          cat > "$APPDIR/usr/share/applications/org.bootanimation_previewer.desktop" << EOF
           [Desktop Entry]
           Name=Boot Animation Previewer
           Comment=Preview and export Android bootanimation.zip files
@@ -190,9 +190,7 @@ jobs:
           Type=Application
           Categories=Graphics;Utility;
           EOF
-          cp "$APPDIR/org.bootanimation_previewer.desktop" \
-             "$APPDIR/usr/share/applications/"
-          ln -sf org.bootanimation_previewer.desktop "$APPDIR/"
+          ln -sf usr/share/applications/org.bootanimation_previewer.desktop "$APPDIR/"
           ln -sf usr/share/icons/hicolor/scalable/apps/bootanimation-previewer.svg \
              "$APPDIR/"
 

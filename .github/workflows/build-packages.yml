@@ -133,7 +133,7 @@ jobs:
           APPDIR="${{ runner.temp }}/AppDir"
 
           mkdir -p "$APPDIR/usr/bin" \
-                   "$APPDIR/usr/lib/python3.12/site-packages" \
+                   "$APPDIR/usr/lib/python3/dist-packages" \
                    "$APPDIR/usr/share/applications" \
                    "$APPDIR/usr/share/icons/hicolor/scalable/apps" \
                    "$APPDIR/usr/lib/girepository-1.0"
@@ -141,38 +141,35 @@ jobs:
           # Copy Python interpreter (dereference symlinks like python3 -> python3.12)
           cp -L "$(which python3)" "$APPDIR/usr/bin/python3"
 
-          # Copy the entire Python standard library (encodings, lib-dynload, etc.)
+          # Copy the entire Python standard library (encodings, lib-dynload, site.py, etc.)
           cp -rL /usr/lib/python3.12 "$APPDIR/usr/lib/"
-          # Remove the system site-packages (we'll install fresh deps below)
-          rm -rf "$APPDIR/usr/lib/python3.12/site-packages"
-          mkdir -p "$APPDIR/usr/lib/python3.12/site-packages"
 
-          # Install Python packages into the AppDir's site-packages
+          # Install Python packages into the AppDir's dist-packages (Debian/Ubuntu layout)
           python3 -m pip install \
-            --target="$APPDIR/usr/lib/python3.12/site-packages" \
+            --target="$APPDIR/usr/lib/python3/dist-packages" \
             --no-user \
             opencv-python numpy pycairo 2>&1
 
           # PyGObject cannot be pip-installed (needs girepository-2.0.pc at compile time),
           # so copy it from the system into the AppDir
-          src=$(python3 -c 'import gi, os; print(os.path.dirname(gi.__file__))')
-          cp -rL "$src" "$APPDIR/usr/lib/python3.12/site-packages/"
+          src=$(python3 -c 'import gi; print(gi.__path__[0])')
+          cp -rL "$src" "$APPDIR/usr/lib/python3/dist-packages/"
           echo "Copied gi:"
-          ls -la "$APPDIR/usr/lib/python3.12/site-packages/gi/"
+          ls -la "$APPDIR/usr/lib/python3/dist-packages/gi/"
 
           # Force reinstall pycairo to guarantee _cairo C extension lands in target
           python3 -m pip install --force-reinstall --no-deps \
-            --target="$APPDIR/usr/lib/python3.12/site-packages" \
+            --target="$APPDIR/usr/lib/python3/dist-packages" \
             pycairo 2>&1
 
           echo "=== cairo/ in AppDir ==="
-          ls -la "$APPDIR/usr/lib/python3.12/site-packages/cairo/"
+          ls -la "$APPDIR/usr/lib/python3/dist-packages/cairo/"
 
       - name: Verify AppDir — all imports work
         run: |
           set -eux
           APPDIR="${{ runner.temp }}/AppDir"
-          export PYTHONHOME="$APPDIR/usr"
+          export PYTHONPATH="$APPDIR/usr/lib/python3/dist-packages"
           export GI_TYPELIB_PATH="/usr/lib/x86_64-linux-gnu/girepository-1.0"
           export LD_LIBRARY_PATH="$APPDIR/usr/lib"
 
@@ -189,7 +186,7 @@ jobs:
               print('{}: {}'.format(mod.__name__, f))
           print('AppDir: all imports OK')
           PYEOF
-          "$APPDIR/usr/bin/python3" /tmp/verify.py
+          python3 /tmp/verify.py
 
       - name: Build AppDir — copy app files
         run: |
@@ -302,12 +299,15 @@ jobs:
         run: |
           set -x
           APPDIR="${{ runner.temp }}/AppDir"
-          SITE_PKG="$APPDIR/usr/lib/python3.12/site-packages/cairo"
+          SITE_PKG="$APPDIR/usr/lib/python3/dist-packages/cairo"
           echo "=== cairo/ in AppDir ==="
           find "$SITE_PKG" -type f 2>/dev/null || echo "(not found)"
           echo "=== _cairo files anywhere in AppDir ==="
           find "$APPDIR" -path "*/cairo/_cairo*" -type f 2>/dev/null || echo "(none found)"
-          echo "=== test import cairo._cairo ==="
+          echo "=== test import cairo._cairo via system Python ==="
+          PYTHONPATH="$APPDIR/usr/lib/python3/dist-packages" \
+          python3 -c "import cairo._cairo; print('_cairo OK:', cairo._cairo.__file__)"
+          echo "=== test import cairo._cairo via bundled Python ==="
           PYTHONHOME="$APPDIR/usr" \
           "$APPDIR/usr/bin/python3" -c "import cairo._cairo; print('_cairo OK:', cairo._cairo.__file__)"
 
@@ -332,7 +332,7 @@ jobs:
           echo "=== cairo/ inside AppImage ==="
           find squashfs-root -path "*/cairo/_cairo*" -type f
           echo "=== all files in cairo/ ==="
-          find squashfs-root -path "*/site-packages/cairo/" -type d -exec ls -la {} \;
+          find squashfs-root -path "*/dist-packages/cairo/" -type d -exec ls -la {} \;
           echo "=== test import from AppImage ==="
           PYTHONHOME="$PWD/squashfs-root/usr" \
           squashfs-root/usr/bin/python3 -c \

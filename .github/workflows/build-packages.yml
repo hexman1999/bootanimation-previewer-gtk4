@@ -319,7 +319,7 @@ jobs:
             -O appimagetool
           chmod +x appimagetool
           ./appimagetool --appimage-extract
-          ./squashfs-root/AppRun "${{ runner.temp }}/AppDir" \
+          ./squashfs-root/AppRun --no-appstream "${{ runner.temp }}/AppDir" \
             "${{ github.workspace }}/${{ env.APP }}-x86_64.AppImage"
 
       - name: Debug — verify _cairo.so inside the AppImage

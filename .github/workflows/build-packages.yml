@@ -154,6 +154,7 @@ jobs:
           export PYTHONPATH="$APPDIR/usr/lib/python3.12/site-packages"
           export GI_TYPELIB_PATH="/usr/lib/x86_64-linux-gnu/girepository-1.0"
 
+          export APPDIR
           cat > /tmp/verify.py << 'PYEOF'
           import gi, cairo, cv2, numpy, os
           gi.require_version('Gtk', '4.0')
@@ -243,6 +244,7 @@ jobs:
           export GI_TYPELIB_PATH="$APPDIR/usr/lib/girepository-1.0"
           export LD_LIBRARY_PATH="$APPDIR/usr/lib"
 
+          export APPDIR
           cat > /tmp/verify2.py << 'PYEOF'
           import gi, cairo, os
           gi.require_version('Gtk', '4.0')

@@ -281,6 +281,21 @@ jobs:
           ./squashfs-root/AppRun --no-appstream "${{ runner.temp }}/AppDir" \
             "${{ github.workspace }}/${{ env.APP }}-x86_64.AppImage"
 
+      - name: Debug — verify _cairo.so inside the AppImage
+        if: success()
+        run: |
+          set -eux
+          cd /tmp
+          chmod +x "${{ github.workspace }}/${{ env.APP }}-x86_64.AppImage"
+          "${{ github.workspace }}/${{ env.APP }}-x86_64.AppImage" --appimage-extract 2>&1
+          echo "=== cairo/ inside AppImage ==="
+          find squashfs-root -path "*/cairo/_cairo*" -type f
+          echo "=== all files in cairo/ ==="
+          ls -la squashfs-root/usr/lib/python3.12/site-packages/cairo/
+          echo "=== test import from AppImage ==="
+          PYTHONPATH="$PWD/squashfs-root/usr/lib/python3.12/site-packages" \
+          python3 -c "import cairo, cairo._cairo; print('OK _cairo:', cairo._cairo.__file__)"
+
       - uses: actions/upload-artifact@v4
         if: success()
         with:

@@ -1,0 +1,197 @@
+name: Build Packages
+
+on:
+  release:
+    types: [published, prereleased]
+  workflow_dispatch:
+    inputs:
+      build_deb:
+        description: Build .deb package
+        type: boolean
+        default: false
+      build_rpm:
+        description: Build .rpm package
+        type: boolean
+        default: false
+      build_appimage:
+        description: Build AppImage
+        type: boolean
+        default: true
+
+env:
+  APP: bootanimation-previewer
+
+jobs:
+  deb:
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.build_deb)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install fpm
+        run: sudo gem install fpm
+      - name: Build .deb
+        run: |
+          VER="${GITHUB_REF_NAME#v}"
+          [ -n "$VER" ] || VER="1.0.0"
+          fpm -s dir -t deb \
+            -n $APP -v "$VER" \
+            --description "Preview and export Android bootanimation.zip files" \
+            --license "GPL-3.0" \
+            --url "https://github.com/hexman1999/bootanimation-previewer-gtk4" \
+            --depends python3-gi \
+            --depends python3-gi-cairo \
+            --depends gir1.2-gtk-4.0 \
+            --depends gir1.2-adw-1 \
+            --depends python3-opencv \
+            --depends python3-numpy \
+            --depends ffmpeg \
+            previewer.py=/usr/bin/$APP \
+            Resources/bootanimation-previewer.svg=/usr/share/icons/hicolor/scalable/apps/$APP.svg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APP }}-deb
+          path: "*.deb"
+
+  rpm:
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.build_rpm)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install fpm
+        run: sudo gem install fpm
+      - name: Build .rpm
+        run: |
+          VER="${GITHUB_REF_NAME#v}"
+          [ -n "$VER" ] || VER="1.0.0"
+          fpm -s dir -t rpm \
+            -n $APP -v "$VER" \
+            --description "Preview and export Android bootanimation.zip files" \
+            --license "GPL-3.0" \
+            --url "https://github.com/hexman1999/bootanimation-previewer-gtk4" \
+            --depends python3-gobject \
+            --depends python3-cairo \
+            --depends gtk4 \
+            --depends libadwaita \
+            --depends opencv \
+            --depends python3-numpy \
+            --depends ffmpeg \
+            previewer.py=/usr/bin/$APP \
+            Resources/bootanimation-previewer.svg=/usr/share/icons/hicolor/scalable/apps/$APP.svg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APP }}-rpm
+          path: "*.rpm"
+
+  appimage:
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.build_appimage)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install system dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y \
+            libgirepository1.0-dev libcairo2-dev \
+            libgtk-4-dev libadwaita-1-dev libgraphene-1.0-dev \
+            python3-venv file wget
+      - name: Build AppDir
+        run: |
+          set -eux
+          APPDIR="${{ runner.temp }}/AppDir"
+          PYTHON_LIB="usr/lib/python3.12/site-packages"
+
+          mkdir -p "$APPDIR/$PYTHON_LIB" "$APPDIR/usr/bin" \
+                   "$APPDIR/usr/share/applications" \
+                   "$APPDIR/usr/share/icons/hicolor/scalable/apps" \
+                   "$APPDIR/usr/lib/girepository-1.0"
+
+          pip install -r requirements.txt --target="$APPDIR/$PYTHON_LIB" --no-user
+
+          cp previewer.py "$APPDIR/usr/bin/$APP"
+          chmod 755 "$APPDIR/usr/bin/$APP"
+          cp Resources/bootanimation-previewer.svg \
+             "$APPDIR/usr/share/icons/hicolor/scalable/apps/$APP.svg"
+
+          cp /usr/lib/x86_64-linux-gnu/girepository-1.0/*.typelib \
+             "$APPDIR/usr/lib/girepository-1.0/"
+
+      - name: Bundle shared libraries
+        run: |
+          set -eux
+          APPDIR="${{ runner.temp }}/AppDir"
+          BUNDLE="$APPDIR/usr/lib"
+
+          # Collect all ELF files in the AppDir and copy every unique
+          # shared library dependency into the bundle directory.
+          find "$APPDIR" -type f \( -name "*.so*" -o -executable \) | while read -r f; do
+            ldd "$f" 2>/dev/null | sed -n 's/.*=> \([^ ]*\) .*/\1/p' || true
+          done | sort -u | while read -r lib; do
+            [ -f "$lib" ] && cp -nL "$lib" "$BUNDLE/" 2>/dev/null || true
+          done
+
+      - name: Create AppRun
+        run: |
+          APPDIR="${{ runner.temp }}/AppDir"
+          cat > "$APPDIR/AppRun" << 'RUNEOF'
+          #!/bin/bash
+          HERE="$(dirname "$(readlink -f "$0")")"
+          export GI_TYPELIB_PATH="$HERE/usr/lib/girepository-1.0"
+          export LD_LIBRARY_PATH="$HERE/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          export PYTHONPATH="$HERE/usr/lib/python3.12/site-packages${PYTHONPATH:+:$PYTHONPATH}"
+          exec "$HERE/usr/bin/bootanimation-previewer" "$@"
+          RUNEOF
+          chmod +x "$APPDIR/AppRun"
+
+      - name: Create desktop entry and top-level links
+        run: |
+          APPDIR="${{ runner.temp }}/AppDir"
+          cat > "$APPDIR/org.bootanimation_previewer.desktop" << EOF
+          [Desktop Entry]
+          Name=Boot Animation Previewer
+          Comment=Preview and export Android bootanimation.zip files
+          Exec=bootanimation-previewer
+          Icon=bootanimation-previewer
+          Terminal=false
+          Type=Application
+          Categories=Graphics;Utility;
+          EOF
+          cp "$APPDIR/org.bootanimation_previewer.desktop" \
+             "$APPDIR/usr/share/applications/"
+          ln -sf org.bootanimation_previewer.desktop "$APPDIR/"
+          ln -sf usr/share/icons/hicolor/scalable/apps/bootanimation-previewer.svg \
+             "$APPDIR/"
+
+      - name: Package AppImage
+        run: |
+          cd /tmp
+          wget -q "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage" \
+            -O appimagetool
+          chmod +x appimagetool
+          ./appimagetool --appimage-extract
+          ./squashfs-root/AppRun "${{ runner.temp }}/AppDir" \
+            "${{ github.workspace }}/${{ env.APP }}-x86_64.AppImage"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APP }}-appimage
+          path: "*.AppImage"
+
+  upload-release:
+    if: github.event_name == 'release'
+    needs: [deb, rpm, appimage]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/*/*.deb
+            artifacts/*/*.rpm
+            artifacts/*/*.AppImage
